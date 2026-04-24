@@ -83,6 +83,10 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the internal design,
 [`docs/ROADMAP.md`](docs/ROADMAP.md) for the planned milestones, and
 [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) for code style and PR flow.
 
+If you're coming from Java and Qt/C++ is new to you, start with
+[`docs/FROM_JAVA.md`](docs/FROM_JAVA.md) — it maps Qt idioms to Swing/Java
+equivalents and walks through the Syltr codebase in that lens.
+
 ## License
 
 GPL-3.0-or-later. See [`LICENSE`](LICENSE).
