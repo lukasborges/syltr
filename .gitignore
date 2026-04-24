@@ -1,33 +1,44 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-*.egg
-dist/
+# Build
 build/
-.venv/
-venv/
-.env
-.mypy_cache/
-.ruff_cache/
-.pytest_cache/
+build-*/
+cmake-build-*/
+install/
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
 
-# Qt / QML
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Qt / MOC
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
 *.qmlc
 *.jsc
 *.qrc.depends
-moc_*.cpp
-qrc_*.cpp
 
 # IDE / tooling
 .idea/
 .vscode/
 .claude/
+.cache/
 *.swp
 *.swo
+*.user
+*.user.*
 .DS_Store
 
-# Runtime data (never commit user profiles)
+# Runtime (never commit user profiles or local overrides)
 profiles/
-**/syltr/resources/services.user.json
+services.user.json

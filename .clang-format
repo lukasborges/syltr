@@ -1,0 +1,29 @@
+---
+BasedOnStyle: WebKit
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+ColumnLimit: 100
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: InlineOnly
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Custom
+BraceWrapping:
+    AfterClass: true
+    AfterControlStatement: Never
+    AfterEnum: true
+    AfterFunction: true
+    AfterNamespace: false
+    AfterStruct: true
+    AfterUnion: true
+    BeforeElse: false
+    BeforeCatch: false
+ConstructorInitializerIndentWidth: 4
+BreakConstructorInitializers: BeforeComma
+NamespaceIndentation: None
+PointerAlignment: Right
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+IndentCaseLabels: false
+SpaceAfterTemplateKeyword: true
+SpacesBeforeTrailingComments: 1

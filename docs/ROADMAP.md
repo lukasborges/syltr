@@ -5,27 +5,30 @@ user-visible improvement. No dates — this is a hobby project for now.
 
 ## 0.1 — Scaffold (current)
 
-- [x] Python package with QML entry point.
-- [x] `QAbstractListModel` service catalog loaded from JSON.
-- [x] Per-service `QWebEngineProfile` with persistent storage.
-- [x] Sidebar + stack UI with one `WebEngineView` per service.
-- [x] System tray with show/hide/quit.
+- [x] CMake project with Qt6 + KF6 + WebEngine.
+- [x] `Service` value type + `ServiceManager` loading catalog from JSON
+      (user override falls back to compiled-in `:/services.json`).
+- [x] `ServiceWebView` subclass of `QWebEngineView` with an isolated
+      `QWebEngineProfile` per service and persistent cookies/storage.
+- [x] `MainWindow` (`KXmlGuiWindow`) with a `QListWidget` sidebar and
+      `QStackedWidget` of views.
+- [x] `TrayIcon` wrapping `KStatusNotifierItem` with show/hide/quit.
 - [x] `.desktop` + AppStream metainfo.
 - [x] Documentation + repo scaffolding.
 
-**Exit criterion:** `python -m syltr` opens a window, loads WhatsApp Web,
-Telegram Web, Slack, Discord, Messenger, sessions persist across restarts.
+**Exit criterion:** `./build/bin/syltr` opens a window, loads WhatsApp Web,
+Telegram Web, Slack, Discord, Messenger; sessions persist across restarts.
 
 ## 0.2 — Real KDE integration
 
-- [ ] Forward HTML5 `Notification` API through `QWebEngineProfile
-      .setNotificationPresenter` to native XDG notifications with per-service
-      app identity.
-- [ ] Unread badge: extract via per-service JS snippet, show on sidebar and tray.
-- [ ] Global shortcut to show/hide (KGlobalAccel via D-Bus, no KF6 binding needed).
-- [ ] Download handling: route to `~/Downloads` with a KIO-style dialog via
-      `QFileDialog`.
-- [ ] Respect Plasma color scheme (Qt does this automatically; verify).
+- [ ] Forward HTML5 `Notification` API through
+      `QWebEngineProfile::setNotificationPresenter` into `KNotification` with
+      per-service app identity.
+- [ ] Unread badge: extract via per-service JS injected with
+      `QWebEnginePage::runJavaScript`, surface on sidebar and tray tooltip.
+- [ ] Global shortcut to show/hide via `KGlobalAccel`.
+- [ ] Download handling: route to `~/Downloads`, wire through `KIO::JobUiDelegate`.
+- [ ] Respect Plasma color scheme (`QPalette` + `KColorScheme`).
 
 **Exit criterion:** Syltr feels like a Plasma-native app — notifications show
 the service name, unread counts visible, Meta+M (configurable) toggles it.
@@ -53,11 +56,11 @@ web chat without touching a JSON file.
 
 ## 0.5 — Packaging
 
-- [ ] Flatpak manifest in `packaging/flatpak/`.
-- [ ] AppImage via `python-appimage`.
+- [ ] Flatpak manifest in `packaging/flatpak/` (KDE runtime).
 - [ ] Fedora COPR spec (RPM) for system install.
-- [ ] GitHub Actions: lint (ruff) + type-check (mypy) + smoke boot test on
-      headless Xvfb.
+- [ ] AppImage via `linuxdeploy` + `linuxdeploy-plugin-qt`.
+- [ ] GitHub Actions: clang-format check, build matrix (Fedora + Debian),
+      smoke boot test on headless Xvfb/offscreen.
 
 **Exit criterion:** A non-developer can install Syltr from Flathub.
 

@@ -1,70 +1,74 @@
 # Architecture
 
-Syltr is a thin Python host around a QML UI. The Python layer owns Qt lifetime,
-persistent storage paths, per-service `QWebEngineProfile`s, and the service
-catalog; QML owns layout and interaction.
-
-## Process model
-
-A single process, single `QApplication`. No IPC, no background services.
-One `QQmlApplicationEngine` loads `syltr/qml/Main.qml`, which instantiates
-one `WebEngineView` per enabled service inside a `StackLayout`.
-
-Views are created eagerly on startup. This trades a slower cold start for
-instant tab switching — the common case.
+Syltr is a native Qt/KF6 application. One process, one `QApplication`, one
+`MainWindow`. No IPC, no background daemons.
 
 ## Component responsibilities
 
-### `syltr.app.SyltrApplication`
-Bootstraps `QtWebEngineQuick`, creates the `QApplication`, wires context
-properties (`serviceModel`, `paths`, `userAgent`, `appBridge`) into the QML
-engine, loads `Main.qml`, and returns the Qt event loop exit code.
+### `main.cpp`
+Sets up `KAboutData`, `KCrash`, and the application-wide icon/desktop identity.
+Parses command-line arguments via `KAboutData::setupCommandLine`. Creates the
+`MainWindow` and starts the Qt event loop.
 
-### `syltr.service_manager.ServiceListModel`
-`QAbstractListModel` backed by a list of `Service` dataclasses. Loads services
-from `~/.local/share/dev.syltr.Syltr/services.json` if it exists, otherwise
-from the bundled catalog. Exposes custom roles (`serviceId`, `name`, `url`,
-`icon`) to QML; no editing from QML yet.
+### `Service` (value type)
+Plain data class holding `id`, `name`, `url`, and `iconName`. Computes its own
+per-service `profilePath()` / `cachePath()` under
+`~/.local/share/dev.syltr.Syltr/profiles/<id>/`. No Qt meta-object — this is a
+regular copyable C++ value.
 
-### `syltr.paths.PathsHelper`
-Tiny `QObject` with two slots (`profilePath(id)`, `cachePath(id)`) that return
-per-service paths under `~/.local/share/dev.syltr.Syltr/profiles/<id>/`. Exposed
-to QML as the `paths` context property.
+### `ServiceManager` (`QObject`)
+Loads the service catalog. Prefers
+`~/.local/share/dev.syltr.Syltr/services.json` if present, otherwise falls
+back to the bundled `:/services.json` compiled from `resources/services.json`.
+Emits `servicesChanged()` on reload.
 
-Profiles themselves are created **inside QML** (`WebEngineProfile` elements in
-`ServiceView.qml`), not in Python. Reason: PySide6 can't marshal
-`QWebEngineProfile*` into QML's `QQuickWebEngineProfile*` slot type cleanly, so
-we parametrize profile construction in QML using plain strings from Python.
-Each profile is tied to its `WebEngineView` within the same delegate, keeping
-lifetimes obvious.
+### `ServiceWebView` (extends `QWebEngineView`)
+One per service. Owns a `QWebEngineProfile` with:
+- `storageName: "syltr-<id>"` so each service has isolated cookies/local storage.
+- `persistentStoragePath` and `cachePath` under the service's profile directory.
+- Desktop Chrome User-Agent so services don't serve us their mobile UI.
+- `ForcePersistentCookies` so logins survive restarts.
 
-### `syltr.tray.TrayIcon`
-`QSystemTrayIcon` with a minimal menu (Show/Hide, Quit). On KDE Plasma this is
-rendered by `StatusNotifierItem` transparently. Signals `toggleRequested` and
-`quitRequested` are wired to the main window via `AppBridge`.
+The `QWebEngineProfile` is parented to the view, so it dies with the view.
+This is the Qt equivalent of Java's parent-child object lifecycle.
 
-### QML
+### `TrayIcon` (`QObject`)
+Thin wrapper around `KStatusNotifierItem` — the KDE-native tray implementation
+(StatusNotifierItem spec). Emits `toggleRequested()` when the user clicks the
+icon or the "Show / Hide" menu entry.
 
-- **`Main.qml`** — `ApplicationWindow` with a sidebar + stack. Listens on
-  `appBridge.toggleWindow` to show/hide from the tray.
-- **`Sidebar.qml`** — `ListView` bound to `serviceModel`, emits `serviceSelected`
-  with the row index.
-- **`ServiceView.qml`** — `WebEngineView` bound to a profile obtained from
-  `profileManager.profileFor(serviceId)`. Grants feature permissions (mic/cam/
-  notifications) by default; this is intentional for a messaging client and will
-  become per-service configurable later.
+### `MainWindow` (extends `KXmlGuiWindow`)
+- Holds the `ServiceManager`, `TrayIcon`, a `QListWidget` sidebar, and a
+  `QStackedWidget` of `ServiceWebView`s.
+- Reacts to `ServiceManager::servicesChanged` by rebuilding both the sidebar
+  and the stack in `rebuildServiceViews()`.
+- Sidebar row change → `QStackedWidget::setCurrentIndex`.
+- `closeEvent` hides instead of quitting — the tray icon is the only way to
+  fully exit (`File → Quit` or the tray menu).
 
 ## Data flow
 
 ```
-JSON on disk ─► ServiceListModel ─► QML Repeater ─► ServiceView[i]
-                                                    ├─ WebEngineProfile (QML)
-                                                    └─ WebEngineView
-                                     paths.profilePath(id) ─────┘
-                                     userAgent ─────────────────┘
+resources/services.json (or ~/.local/share/…/services.json)
+          │
+          ▼
+   ServiceManager ──── servicesChanged ────► MainWindow
+          │                                       │
+          │                                       ├─ QListWidget (sidebar)
+          │                                       └─ QStackedWidget ─► ServiceWebView[i]
+          │                                                                   │
+          │                                                                   └─ QWebEngineProfile (isolated)
 
-Tray ─► AppBridge.toggleWindow ─► Main.qml Connections
+KStatusNotifierItem ── toggleRequested ─► MainWindow::toggleVisible
 ```
+
+## Memory model
+
+Every class except `Service` is a `QObject` with a parent. Objects are deleted
+when their parent is deleted, so the codebase uses raw `new` without
+smart pointers — this is idiomatic Qt and in practice behaves like Java's GC
+for UI-owned objects. Only use `std::unique_ptr`/`std::shared_ptr` for
+non-`QObject` data that outlives simple scoping.
 
 ## Persistence
 
@@ -72,12 +76,12 @@ Tray ─► AppBridge.toggleWindow ─► Main.qml Connections
 - `~/.local/share/dev.syltr.Syltr/profiles/<id>/` — cookies, local storage,
   service workers, IndexedDB, Chromium cache per service.
 
-The user's profiles directory is the only thing that must never be deleted
-carelessly — losing it means re-logging into every service.
+The profiles directory is the only thing that must never be deleted casually —
+losing it means re-logging into every service.
 
 ## Non-goals (for now)
 
-- No plugin system. Services are JSON entries, not Electron-style recipes.
+- No plugin system. Services are JSON entries, not Franz-style recipes.
 - No per-service preference UI. Edit JSON.
 - No multi-window. One window, one stack.
-- No mobile. Kirigami-based responsive layout is a future option, not a goal.
+- No mobile form factor.
