@@ -33,6 +33,8 @@ ui_*.h
 .vscode/
 .claude/
 .cache/
+.kdev4/
+*.kdev4
 *.swp
 *.swo
 *.user
