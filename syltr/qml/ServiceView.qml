@@ -6,13 +6,24 @@ Item {
     id: root
     property string serviceId
     property string serviceUrl
-    property var profile
+
+    WebEngineProfile {
+        id: serviceProfile
+        storageName: "syltr-" + root.serviceId
+        offTheRecord: false
+        persistentStoragePath: paths.profilePath(root.serviceId)
+        cachePath: paths.cachePath(root.serviceId)
+        httpUserAgent: userAgent
+        persistentCookiesPolicy: WebEngineProfile.ForcePersistentCookies
+    }
 
     WebEngineView {
         id: view
         anchors.fill: parent
-        profile: root.profile
+        profile: serviceProfile
         url: root.serviceUrl
+        settings.playbackRequiresUserGesture: false
+        settings.showScrollBars: false
 
         onFeaturePermissionRequested: (securityOrigin, feature) => {
             view.grantFeaturePermission(securityOrigin, feature, true);

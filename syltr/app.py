@@ -9,8 +9,7 @@ from PySide6.QtWebEngineQuick import QtWebEngineQuick
 from PySide6.QtWidgets import QApplication
 
 from . import APP_ID, __version__
-from .paths import MAIN_QML
-from .profile_manager import ProfileManager
+from .paths import DESKTOP_USER_AGENT, MAIN_QML, PathsHelper
 from .service_manager import ServiceListModel
 from .tray import TrayIcon
 
@@ -35,7 +34,7 @@ class SyltrApplication:
 
         self._bridge = AppBridge()
         self._services = ServiceListModel()
-        self._profiles = ProfileManager()
+        self._paths = PathsHelper()
         self._tray = TrayIcon()
 
         self._tray.toggleRequested.connect(self._bridge.toggleWindow)
@@ -44,7 +43,8 @@ class SyltrApplication:
         self._engine = QQmlApplicationEngine()
         ctx = self._engine.rootContext()
         ctx.setContextProperty("serviceModel", self._services)
-        ctx.setContextProperty("profileManager", self._profiles)
+        ctx.setContextProperty("paths", self._paths)
+        ctx.setContextProperty("userAgent", DESKTOP_USER_AGENT)
         ctx.setContextProperty("appBridge", self._bridge)
 
         self._engine.load(QUrl.fromLocalFile(str(MAIN_QML)))

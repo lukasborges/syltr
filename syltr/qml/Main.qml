@@ -49,7 +49,6 @@ ApplicationWindow {
                 delegate: ServiceView {
                     serviceId: model.serviceId
                     serviceUrl: model.url
-                    profile: profileManager.profileFor(model.serviceId)
                 }
             }
         }

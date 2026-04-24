@@ -42,9 +42,15 @@ Issues = "https://github.com/syltr/syltr/issues"
 [tool.hatch.build.targets.wheel]
 packages = ["syltr"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"syltr/qml" = "syltr/qml"
-"resources/services.json" = "syltr/resources/services.json"
+[tool.hatch.build.targets.wheel.sources]
+"syltr" = "syltr"
+
+[tool.hatch.build]
+include = [
+    "syltr/**/*.py",
+    "syltr/qml/**",
+    "syltr/resources/**",
+]
 
 [tool.ruff]
 line-length = 100

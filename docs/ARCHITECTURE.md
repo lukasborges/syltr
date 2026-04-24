@@ -17,8 +17,8 @@ instant tab switching — the common case.
 
 ### `syltr.app.SyltrApplication`
 Bootstraps `QtWebEngineQuick`, creates the `QApplication`, wires context
-properties (`serviceModel`, `profileManager`, `appBridge`) into the QML engine,
-loads `Main.qml`, and returns the Qt event loop exit code.
+properties (`serviceModel`, `paths`, `userAgent`, `appBridge`) into the QML
+engine, loads `Main.qml`, and returns the Qt event loop exit code.
 
 ### `syltr.service_manager.ServiceListModel`
 `QAbstractListModel` backed by a list of `Service` dataclasses. Loads services
@@ -26,16 +26,17 @@ from `~/.local/share/dev.syltr.Syltr/services.json` if it exists, otherwise
 from the bundled catalog. Exposes custom roles (`serviceId`, `name`, `url`,
 `icon`) to QML; no editing from QML yet.
 
-### `syltr.profile_manager.ProfileManager`
-Creates and caches one `QWebEngineProfile` per service id. Each profile gets:
-- Its own off-the-record name (`syltr-<id>`) so cookies and storage are isolated.
-- `persistentStoragePath` under `~/.local/share/dev.syltr.Syltr/profiles/<id>/`.
-- `cachePath` under the same directory.
-- A desktop Chrome User-Agent, so services don't serve us their mobile UI.
+### `syltr.paths.PathsHelper`
+Tiny `QObject` with two slots (`profilePath(id)`, `cachePath(id)`) that return
+per-service paths under `~/.local/share/dev.syltr.Syltr/profiles/<id>/`. Exposed
+to QML as the `paths` context property.
 
-This is the single reason Syltr needs Python on the host: QML can't conveniently
-construct per-row profiles declaratively while keeping them alive across
-`StackLayout` delegate recycling.
+Profiles themselves are created **inside QML** (`WebEngineProfile` elements in
+`ServiceView.qml`), not in Python. Reason: PySide6 can't marshal
+`QWebEngineProfile*` into QML's `QQuickWebEngineProfile*` slot type cleanly, so
+we parametrize profile construction in QML using plain strings from Python.
+Each profile is tied to its `WebEngineView` within the same delegate, keeping
+lifetimes obvious.
 
 ### `syltr.tray.TrayIcon`
 `QSystemTrayIcon` with a minimal menu (Show/Hide, Quit). On KDE Plasma this is
@@ -56,9 +57,11 @@ rendered by `StatusNotifierItem` transparently. Signals `toggleRequested` and
 ## Data flow
 
 ```
-JSON on disk ─► ServiceListModel ─► QML Repeater ─► WebEngineView[i]
-                                                          ▲
-                ProfileManager.profileFor(id) ────────────┘
+JSON on disk ─► ServiceListModel ─► QML Repeater ─► ServiceView[i]
+                                                    ├─ WebEngineProfile (QML)
+                                                    └─ WebEngineView
+                                     paths.profilePath(id) ─────┘
+                                     userAgent ─────────────────┘
 
 Tray ─► AppBridge.toggleWindow ─► Main.qml Connections
 ```
