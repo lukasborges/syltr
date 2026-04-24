@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.syltr.Syltr</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Syltr</name>
+  <summary>All-in-one messaging client for KDE Plasma</summary>
+  <description>
+    <p>
+      Syltr groups the web interfaces of common messaging services (WhatsApp Web,
+      Telegram, Slack, Discord, Messenger, and user-defined services) into a single
+      window with per-service session isolation, native notifications, and tight
+      integration with KDE Plasma.
+    </p>
+  </description>
+  <launchable type="desktop-id">dev.syltr.Syltr.desktop</launchable>
+  <url type="homepage">https://github.com/syltr/syltr</url>
+  <url type="bugtracker">https://github.com/syltr/syltr/issues</url>
+  <developer id="dev.syltr">
+    <name>Syltr contributors</name>
+  </developer>
+  <content_rating type="oars-1.1" />
+  <categories>
+    <category>Network</category>
+    <category>InstantMessaging</category>
+  </categories>
+  <releases>
+    <release version="0.1.0" date="2026-04-24">
+      <description><p>Initial scaffold.</p></description>
+    </release>
+  </releases>
+</component>

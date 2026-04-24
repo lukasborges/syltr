@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Syltr
+GenericName=Messaging Client
+Comment=All-in-one messaging client for KDE Plasma
+Exec=syltr
+Icon=dev.syltr.Syltr
+Terminal=false
+Categories=Qt;KDE;Network;InstantMessaging;
+Keywords=chat;messaging;whatsapp;telegram;slack;discord;messenger;
+StartupNotify=true
+StartupWMClass=Syltr
+X-GNOME-UsesNotifications=true

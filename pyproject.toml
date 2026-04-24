@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "syltr"
+version = "0.1.0"
+description = "All-in-one messaging client for KDE Plasma"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Syltr contributors" }]
+keywords = ["kde", "qt", "qml", "messaging", "webengine"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Communications :: Chat",
+]
+dependencies = [
+    "PySide6-Essentials>=6.6",
+    "PySide6-Addons>=6.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pytest>=8",
+]
+
+[project.scripts]
+syltr = "syltr.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/syltr/syltr"
+Issues = "https://github.com/syltr/syltr/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["syltr"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"syltr/qml" = "syltr/qml"
+"resources/services.json" = "syltr/resources/services.json"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true

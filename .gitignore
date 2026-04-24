@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+venv/
+.env
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Qt / QML
+*.qmlc
+*.jsc
+*.qrc.depends
+moc_*.cpp
+qrc_*.cpp
+
+# IDE / tooling
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+.DS_Store
+
+# Runtime data (never commit user profiles)
+profiles/
+**/syltr/resources/services.user.json
