@@ -186,15 +186,43 @@ impl ServiceView {
             });
         }
 
-        // Links "abrir em nova janela" (target=_blank) abrem no navegador padrão.
-        webview.connect_create(|_wv, action| {
-            if let Some(uri) = action.request().and_then(|r| r.uri()) {
-                let _ = gtk::gio::AppInfo::launch_default_for_uri(
-                    uri.as_str(),
-                    None::<&gtk::gio::AppLaunchContext>,
-                );
+        // "Nova janela"/popup (ex.: "Entrar com Google", target=_blank) abre
+        // numa janela dentro do app, com uma webview que compartilha a mesma
+        // sessão/processo (`related_view`) — essencial para o login funcionar.
+        webview.connect_create(|wv, _action| {
+            let popup = webkit6::WebView::builder().related_view(wv).build();
+
+            let toolbar = adw::ToolbarView::new();
+            toolbar.add_top_bar(&adw::HeaderBar::new());
+            toolbar.set_content(Some(&popup));
+
+            let window = adw::Window::builder()
+                .default_width(560)
+                .default_height(720)
+                .modal(true)
+                .content(&toolbar)
+                .build();
+            if let Some(parent) = wv.root().and_downcast::<gtk::Window>() {
+                window.set_transient_for(Some(&parent));
             }
-            None::<gtk::Widget>
+
+            // O site controla quando mostrar e quando fechar o popup.
+            {
+                let window = window.clone();
+                popup.connect_ready_to_show(move |_| window.present());
+            }
+            {
+                let window = window.clone();
+                popup.connect_close(move |_| window.close());
+            }
+            {
+                let window = window.clone();
+                popup.connect_title_notify(move |p| {
+                    window.set_title(p.title().as_deref());
+                });
+            }
+
+            Some(popup.upcast::<gtk::Widget>())
         });
 
         // Ícone do rail: inicial do nome como fallback, favicon quando disponível.

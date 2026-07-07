@@ -186,7 +186,13 @@ impl Ui {
         let services = self.state.borrow().services.clone();
         for (i, svc) in services.iter().enumerate() {
             let view = self.ensure_view(svc);
-            let row = service_row(svc, view.icon());
+            let icon = view.icon();
+            // O ícone é reusado entre linhas; solta do pai anterior antes de
+            // reanexar, senão a linha nova fica vazia (bug ao reordenar).
+            if icon.parent().is_some() {
+                icon.unparent();
+            }
+            let row = service_row(svc, icon);
             self.attach_row_controllers(&row, i);
             self.list.append(&row);
         }
