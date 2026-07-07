@@ -73,6 +73,26 @@ const UNREAD_JS: &str = r#"
 })();
 "#;
 
+/// Script injetado no início de cada página: faz o site enxergar a permissão
+/// de notificação como já concedida. Sem isso, serviços como o WhatsApp Web
+/// mostram "notificações desativadas" a cada abertura, porque o WebKit não
+/// persiste a permissão entre sessões. As notificações reais seguem
+/// funcionando pelo handler `show-notification`.
+const NOTIFY_PERMISSION_JS: &str = r#"
+(function () {
+  try {
+    Object.defineProperty(Notification, 'permission', {
+      configurable: true,
+      get: () => 'granted',
+    });
+    Notification.requestPermission = function (cb) {
+      if (typeof cb === 'function') cb('granted');
+      return Promise.resolve('granted');
+    };
+  } catch (e) {}
+})();
+"#;
+
 /// Executa um script na webview (fire-and-forget).
 fn run_js(webview: &webkit6::WebView, script: &str) {
     webview.evaluate_javascript(
@@ -143,6 +163,14 @@ impl ServiceView {
         let ucm = webkit6::UserContentManager::new();
         ucm.register_script_message_handler("faviconReady", None);
         ucm.register_script_message_handler("unreadCount", None);
+        // Pré-concede a permissão de notificação (ver NOTIFY_PERMISSION_JS).
+        ucm.add_script(&webkit6::UserScript::new(
+            NOTIFY_PERMISSION_JS,
+            webkit6::UserContentInjectedFrames::AllFrames,
+            webkit6::UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
 
         let webview = webkit6::WebView::builder()
             .network_session(&session)
