@@ -214,43 +214,17 @@ impl ServiceView {
             });
         }
 
-        // "Nova janela"/popup (ex.: "Entrar com Google", target=_blank) abre
-        // numa janela dentro do app, com uma webview que compartilha a mesma
-        // sessão/processo (`related_view`) — essencial para o login funcionar.
-        webview.connect_create(|wv, _action| {
-            let popup = webkit6::WebView::builder().related_view(wv).build();
-
-            let toolbar = adw::ToolbarView::new();
-            toolbar.add_top_bar(&adw::HeaderBar::new());
-            toolbar.set_content(Some(&popup));
-
-            let window = adw::Window::builder()
-                .default_width(560)
-                .default_height(720)
-                .modal(true)
-                .content(&toolbar)
-                .build();
-            if let Some(parent) = wv.root().and_downcast::<gtk::Window>() {
-                window.set_transient_for(Some(&parent));
+        // "Nova janela"/popup (ex.: "Entrar com Google", target=_blank):
+        // navega na PRÓPRIA webview do serviço, em vez de abrir popup ou o
+        // navegador externo. Como é a mesma view, a sessão/cookies do login
+        // ficam no serviço; o provedor OAuth redireciona de volta ao final.
+        webview.connect_create(|wv, action| {
+            if let Some(uri) = action.request().and_then(|r| r.uri()) {
+                if !uri.is_empty() {
+                    wv.load_uri(&uri);
+                }
             }
-
-            // O site controla quando mostrar e quando fechar o popup.
-            {
-                let window = window.clone();
-                popup.connect_ready_to_show(move |_| window.present());
-            }
-            {
-                let window = window.clone();
-                popup.connect_close(move |_| window.close());
-            }
-            {
-                let window = window.clone();
-                popup.connect_title_notify(move |p| {
-                    window.set_title(p.title().as_deref());
-                });
-            }
-
-            Some(popup.upcast::<gtk::Widget>())
+            None::<gtk::Widget>
         });
 
         // Ícone do rail: inicial do nome como fallback, favicon quando disponível.
