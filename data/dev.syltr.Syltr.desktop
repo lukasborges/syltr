@@ -1,13 +1,11 @@
 [Desktop Entry]
-Type=Application
 Name=Syltr
-GenericName=Messaging Client
-Comment=All-in-one messaging client for KDE Plasma
+GenericName=Messaging Aggregator
+Comment=Reúna WhatsApp, Telegram, Slack, Discord e outros num só app
 Exec=syltr
 Icon=dev.syltr.Syltr
 Terminal=false
-Categories=Qt;KDE;Network;InstantMessaging;
-Keywords=chat;messaging;whatsapp;telegram;slack;discord;messenger;
+Type=Application
+Categories=Network;InstantMessaging;GTK;
+Keywords=messaging;chat;whatsapp;telegram;slack;discord;franz;
 StartupNotify=true
-StartupWMClass=Syltr
-X-GNOME-UsesNotifications=true

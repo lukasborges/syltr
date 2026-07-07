@@ -1,32 +1,44 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>dev.syltr.Syltr</id>
+
+  <name>Syltr</name>
+  <summary>Agregador de serviços de mensagens</summary>
+
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>Syltr</name>
-  <summary>All-in-one messaging client for KDE Plasma</summary>
+
+  <developer id="dev.syltr">
+    <name>Lucas Borges</name>
+  </developer>
+
+  <url type="homepage">https://github.com/lucasborges/syltr</url>
+  <url type="bugtracker">https://github.com/lucasborges/syltr/issues</url>
+
   <description>
     <p>
-      Syltr groups the web interfaces of common messaging services (WhatsApp Web,
-      Telegram, Slack, Discord, Messenger, and user-defined services) into a single
-      window with per-service session isolation, native notifications, and tight
-      integration with KDE Plasma.
+      Syltr reúne vários serviços web de mensagens (WhatsApp Web, Telegram,
+      Slack, Discord, Messenger e outros) numa única janela, no estilo do
+      Franz — cada serviço com sua própria sessão isolada.
     </p>
+    <p>Construído nativamente para o GNOME com GTK4, libadwaita e WebKitGTK.</p>
   </description>
+
   <launchable type="desktop-id">dev.syltr.Syltr.desktop</launchable>
-  <url type="homepage">https://github.com/syltr/syltr</url>
-  <url type="bugtracker">https://github.com/syltr/syltr/issues</url>
-  <developer id="dev.syltr">
-    <name>Syltr contributors</name>
-  </developer>
-  <content_rating type="oars-1.1" />
+
   <categories>
     <category>Network</category>
     <category>InstantMessaging</category>
   </categories>
+
+  <content_rating type="oars-1.1"/>
+
   <releases>
-    <release version="0.1.0" date="2026-04-24">
-      <description><p>Initial scaffold.</p></description>
+    <release version="0.1.0" date="2026-07-07">
+      <description>
+        <p>Primeira versão: sidebar de serviços, adicionar/remover, sessões
+        isoladas por serviço e notificações.</p>
+      </description>
     </release>
   </releases>
 </component>

@@ -44,3 +44,7 @@ ui_*.h
 # Runtime (never commit user profiles or local overrides)
 profiles/
 services.user.json
+
+# Rust
+/target
+Cargo.lock.bak

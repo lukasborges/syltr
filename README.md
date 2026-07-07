@@ -1,92 +1,74 @@
 # Syltr
 
-All-in-one messaging client for KDE Plasma — a lightweight, native alternative
-to Franz/Ferdium.
+Agregador de serviços de mensagens no estilo **Franz**, nativo para o **GNOME**.
+Reúne WhatsApp Web, Telegram, Slack, Discord, Messenger e qualquer outro serviço
+web numa única janela — cada um com sua **sessão isolada** (cookies e
+armazenamento próprios).
 
-Syltr groups the web interfaces of common messaging services (WhatsApp Web,
-Telegram, Slack, Discord, Messenger, and user-defined services) into a single
-window, each with an isolated persistent session.
+**Stack:** GTK4 · libadwaita · WebKitGTK 6 · Rust
 
-- **Status**: pre-alpha scaffold (0.1.0). Not usable yet.
-- **Stack**: C++20, Qt 6.5+ (Widgets + WebEngine), KF6, CMake.
-- **Target platform**: Linux with KDE Plasma 6.
+## Funcionalidades
 
-## Why another messaging aggregator?
+- Rail de ícones com favicons reais (rasteriza inclusive SVG) e realce do ativo
+- Adicionar serviços a partir de um catálogo ou por URL personalizada
+- **Reordenar** serviços arrastando · **menu de contexto** (botão direito)
+- **Badges de não lidas** no ícone (detecção por título/DOM)
+- **Notificações nativas** do desktop · **silenciar** por serviço · **não perturbe** global
+- Sessões isoladas por serviço (login independente em cada um)
+- Lista de serviços persistida em `~/.config/dev.syltr.Syltr/services.json`
 
-Franz and Ferdium are Electron-based. Syltr bets on the native Qt/KF6 stack
-used by KDE itself: lighter footprint, Wayland-friendly, respects Plasma
-theming, notifications, tray (`KStatusNotifierItem`), and global shortcuts.
+### Atalhos
 
-## Build dependencies (Fedora)
+| Atalho | Ação |
+|--------|------|
+| `Ctrl+1` … `Ctrl+9` | Ir para o serviço N |
+| `Ctrl+PgDown` / `Alt+↓` | Próximo serviço |
+| `Ctrl+PgUp` / `Alt+↑` | Serviço anterior |
+| `Ctrl+N` | Adicionar serviço |
+| `Ctrl+R` / `F5` | Recarregar |
+| `Ctrl+Q` | Sair |
 
-```bash
-sudo dnf install -y \
-    cmake ninja-build gcc-c++ \
-    extra-cmake-modules \
-    qt6-qtbase-devel qt6-qtwebengine-devel qt6-qtsvg-devel \
-    kf6-kcoreaddons-devel kf6-ki18n-devel kf6-kxmlgui-devel \
-    kf6-kconfigwidgets-devel kf6-knotifications-devel \
-    kf6-kstatusnotifieritem-devel kf6-kwidgetsaddons-devel \
-    kf6-kcrash-devel kf6-kwindowsystem-devel
-```
+## Desenvolvimento
 
-## Build
-
-```bash
-git clone https://github.com/syltr/syltr.git
-cd syltr
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-./build/bin/syltr
-```
-
-## Install (optional)
+Instale as dependências (Arch Linux):
 
 ```bash
-cmake --install build --prefix ~/.local
+./scripts/install-deps.sh          # tudo, incl. GNOME Builder e CEF (opcional)
+./scripts/install-deps.sh --no-cef # sem a engine Chromium (dev com WebKitGTK)
+./scripts/install-deps.sh --no-ide # sem GNOME Builder
 ```
 
-The first run creates `~/.local/share/dev.syltr.Syltr/` with per-service
-profile directories under `profiles/`.
+Compile e rode:
 
-## Configuring services
-
-Services are declared in `resources/services.json` (compiled into the binary).
-To override without rebuilding, drop a modified copy at
-`~/.local/share/dev.syltr.Syltr/services.json`:
-
-```json
-[
-    { "id": "whatsapp", "name": "WhatsApp Web", "url": "https://web.whatsapp.com/", "icon": "whatsapp" },
-    { "id": "my-mattermost", "name": "Work Chat", "url": "https://chat.example.com/", "icon": "" }
-]
+```bash
+cargo run
 ```
 
-Restart Syltr to reload.
+Ou abra a pasta no **GNOME Builder** (`gnome-builder .`).
 
-## Repository layout
+## Arquitetura
 
-```
-syltr/
-├── CMakeLists.txt
-├── src/                  C++ sources (MainWindow, Service, ServiceManager, ServiceWebView, TrayIcon)
-├── resources/            Qt resource bundle + bundled services.json
-├── data/                 .desktop + AppStream metainfo
-├── docs/                 Architecture, roadmap, contributing
-├── LICENSE               GPL-3.0-or-later
-└── README.md
-```
+| Arquivo          | Responsabilidade                                             |
+|------------------|-------------------------------------------------------------|
+| `src/main.rs`    | Inicializa a `AdwApplication`                                |
+| `src/window.rs`  | Janela, sidebar, stack de webviews, ações e diálogos        |
+| `src/engine.rs`  | **Camada da engine web** (isolada) — hoje WebKitGTK          |
+| `src/config.rs`  | Persistência dos serviços e caminho das sessões (XDG)        |
+| `src/catalog.rs` | Catálogo de serviços conhecidos ("recipes")                  |
 
-## Development
+### Engine web: WebKit hoje, Chromium depois
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the internal design,
-[`docs/ROADMAP.md`](docs/ROADMAP.md) for the planned milestones, and
-[`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) for code style and PR flow.
+Todo o app usa **apenas** a API pública de `engine::ServiceView`
+(`new`, `widget`, `reload`, `go_home`) e nunca toca no `webkit6` diretamente.
+Para migrar para a **engine do Chromium**, basta reimplementar `ServiceView`
+em `src/engine.rs` com o crate [`cef`](https://crates.io/crates/cef)
+(Chromium Embedded Framework) renderizando *offscreen* dentro de um
+`gtk::Widget` — nenhum outro arquivo precisa mudar.
 
-If you're coming from Java and Qt/C++ is new to you, start with
-[`docs/FROM_JAVA.md`](docs/FROM_JAVA.md) — it maps Qt idioms to Swing/Java
-equivalents and walks through the Syltr codebase in that lens.
+> No Wayland, o CEF exige *offscreen rendering* e a distribuição binária do CEF
+> (`CEF_PATH`, veja `scripts/install-deps.sh`). Por isso o desenvolvimento
+> começa com WebKitGTK, que é nativo e estável no GNOME.
 
-## License
+## Licença
 
-GPL-3.0-or-later. See [`LICENSE`](LICENSE).
+GPL-3.0-or-later

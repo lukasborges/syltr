@@ -1,0 +1,18 @@
+[package]
+name = "syltr"
+version = "0.1.0"
+edition = "2021"
+description = "Agregador de serviços de mensagens (estilo Franz) para o GNOME"
+license = "GPL-3.0-or-later"
+
+[[bin]]
+name = "syltr"
+path = "src/main.rs"
+
+[dependencies]
+adw = { version = "0.9.2", package = "libadwaita", features = ["v1_5"] }
+base64 = "0.22.1"
+gtk = { version = "0.11.4", package = "gtk4", features = ["v4_12"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+webkit6 = "0.6.1"
