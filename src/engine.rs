@@ -495,6 +495,7 @@ wrap_client! {
         life_span_handler: LifeSpanHandler,
         permission_handler: PermissionHandler,
         context_menu_handler: ContextMenuHandler,
+        download_handler: DownloadHandler,
     }
 
     impl Client {
@@ -513,6 +514,9 @@ wrap_client! {
         fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
             Some(self.context_menu_handler.clone())
         }
+        fn download_handler(&self) -> Option<DownloadHandler> {
+            Some(self.download_handler.clone())
+        }
     }
 }
 
@@ -530,6 +534,7 @@ impl ClientBuilder {
             LifeSpanHandlerBuilder::build(slot, muted, spell_langs),
             PermissionHandlerBuilder::build(SyltrPermissionHandler {}),
             ContextMenuHandlerBuilder::build(state),
+            DownloadHandlerBuilder::build(SyltrDownloadHandler {}),
         )
     }
 }
@@ -717,6 +722,100 @@ wrap_permission_handler! {
 
 impl PermissionHandlerBuilder {
     fn build(handler: SyltrPermissionHandler) -> PermissionHandler {
+        Self::new(handler)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DownloadHandler — sem isto o CEF cancela todo download por padrão. No OSR
+// não há diálogo nativo "Salvar como", então gravamos direto em ~/Downloads
+// (ou XDG equivalente), evitando sobrescrever arquivos existentes.
+// ---------------------------------------------------------------------------
+
+fn downloads_dir() -> std::path::PathBuf {
+    glib::user_special_dir(glib::UserDirectory::Downloads)
+        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join("Downloads")))
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// Caminho em `dir/name` que não colide: acrescenta " (1)", " (2)"… se preciso.
+fn unique_path(dir: &Path, name: &str) -> std::path::PathBuf {
+    let candidate = dir.join(name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let path = Path::new(name);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
+    let ext = path.extension().and_then(|s| s.to_str());
+    for n in 1.. {
+        let filename = match ext {
+            Some(ext) => format!("{stem} ({n}).{ext}"),
+            None => format!("{stem} ({n})"),
+        };
+        let candidate = dir.join(filename);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+#[derive(Clone)]
+struct SyltrDownloadHandler {}
+
+wrap_download_handler! {
+    struct DownloadHandlerBuilder {
+        handler: SyltrDownloadHandler,
+    }
+
+    impl DownloadHandler {
+        fn can_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            _url: Option<&CefString>,
+            _request_method: Option<&CefString>,
+        ) -> ::std::os::raw::c_int {
+            1
+        }
+
+        fn on_before_download(
+            &self,
+            _browser: Option<&mut Browser>,
+            _download_item: Option<&mut DownloadItem>,
+            suggested_name: Option<&CefString>,
+            callback: Option<&mut BeforeDownloadCallback>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(cb) = callback {
+                let name = suggested_name
+                    .map(|n| n.to_string())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| "download".to_string());
+                let path = unique_path(&downloads_dir(), &name);
+                let path_str = path.to_string_lossy();
+                // show_dialog = 0: grava direto, sem diálogo (indisponível no OSR).
+                cb.cont(Some(&CefString::from(path_str.as_ref())), 0);
+            }
+            1
+        }
+
+        fn on_download_updated(
+            &self,
+            _browser: Option<&mut Browser>,
+            download_item: Option<&mut DownloadItem>,
+            _callback: Option<&mut DownloadItemCallback>,
+        ) {
+            if let Some(item) = download_item {
+                if item.is_complete() == 1 {
+                    let path = CefString::from(&item.full_path()).to_string();
+                    eprintln!("[syltr] download concluído: {path}");
+                }
+            }
+        }
+    }
+}
+
+impl DownloadHandlerBuilder {
+    fn build(handler: SyltrDownloadHandler) -> DownloadHandler {
         Self::new(handler)
     }
 }

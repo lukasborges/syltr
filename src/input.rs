@@ -73,6 +73,12 @@ fn key_event(type_: KeyEventType, modifiers: u32, wkc: i32, ch: Option<char>) ->
     }
 }
 
+// Evento CHAR já com o caractere final (ex.: 'ã' composto de dead key + 'a').
+// Vem do `commit` do IMContext, então não temos keyval; usamos o char.
+fn char_event(c: char) -> KeyEvent {
+    key_event(KeyEventType::CHAR, 0, c as i32, Some(c))
+}
+
 fn win_key_code(k: gdk::Key) -> i32 {
     use gdk::Key;
     if k == Key::BackSpace {
@@ -201,11 +207,29 @@ pub fn attach(area: &gtk::DrawingArea, slot: Rc<BrowserSlot>) {
         area.add_controller(scroll);
     }
 
+    // Input method (compõe dead keys: `~`+`a` -> `ã`, `´`+`e` -> `é`, etc.).
+    // O texto final chega pelo sinal `commit`; sem isso os acentos se perdem.
+    let im = gtk::IMMulticontext::new();
+    im.set_client_widget(Some(area));
+    // OSR não desenha o preedit sublinhado; deixamos o IM compor sem preview.
+    im.set_use_preedit(false);
+    {
+        let slot_c = slot.clone();
+        im.connect_commit(move |_, text| {
+            if let Some(host) = slot_c.host() {
+                for c in text.chars() {
+                    host.send_key_event(Some(&char_event(c)));
+                }
+            }
+        });
+    }
+
     // Teclado
     {
         let key = gtk::EventControllerKey::new();
         let slot_kp = slot.clone();
-        key.connect_key_pressed(move |_, keyval, _code, state| {
+        let im_kp = im.clone();
+        key.connect_key_pressed(move |ctrl, keyval, _code, state| {
             // Atalhos de edição (Ctrl+C/V/X/A/Z) via comandos do frame — mais
             // confiável que depender da tradução de tecla no OSR.
             if state.contains(gdk::ModifierType::CONTROL_MASK)
@@ -230,10 +254,27 @@ pub fn attach(area: &gtk::DrawingArea, slot: Rc<BrowserSlot>) {
 
             let m = mods(state);
             let wkc = win_key_code(keyval);
-            let ch = keyval.to_unicode();
+            // RAWKEYDOWN sempre (estado da tecla p/ o renderer e listeners de keydown).
             if let Some(host) = slot_kp.host() {
-                host.send_key_event(Some(&key_event(KeyEventType::RAWKEYDOWN, m, wkc, ch)));
-                if let Some(c) = ch {
+                host.send_key_event(Some(&key_event(
+                    KeyEventType::RAWKEYDOWN,
+                    m,
+                    wkc,
+                    keyval.to_unicode(),
+                )));
+            }
+
+            // Deixa o IM compor. Se consumir (dead key ou char comum), o CHAR já
+            // com acento vem pelo `commit` — não mandamos CHAR aqui.
+            if let Some(ev) = ctrl.current_event() {
+                if im_kp.filter_keypress(ev) {
+                    return glib::Propagation::Stop;
+                }
+            }
+
+            // IM não tratou (ex.: sem input method ativo): CHAR direto.
+            if let Some(host) = slot_kp.host() {
+                if let Some(c) = keyval.to_unicode() {
                     if !c.is_control() {
                         host.send_key_event(Some(&key_event(KeyEventType::CHAR, m, wkc, Some(c))));
                     }
@@ -259,13 +300,19 @@ pub fn attach(area: &gtk::DrawingArea, slot: Rc<BrowserSlot>) {
     {
         let focus = gtk::EventControllerFocus::new();
         let slot_fe = slot.clone();
+        let im_fe = im.clone();
         focus.connect_enter(move |_| {
+            im_fe.focus_in();
             if let Some(host) = slot_fe.host() {
                 host.set_focus(1);
             }
         });
         let slot_fl = slot.clone();
+        let im_fl = im.clone();
         focus.connect_leave(move |_| {
+            // Reseta composição pendente ao perder o foco (dead key solta).
+            im_fl.reset();
+            im_fl.focus_out();
             if let Some(host) = slot_fl.host() {
                 host.set_focus(0);
             }
