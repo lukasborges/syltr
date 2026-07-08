@@ -12,10 +12,12 @@ use std::rc::Rc;
 use cef::{
     args::Args, rc::Rc as _, App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings,
     Client, CommandLine, CursorInfo, CursorType, DisplayHandler, DownloadImageCallback,
-    ContentSettingTypes, ContentSettingValues, ImplBinaryValue, ImplBrowser, ImplBrowserHost,
-    ImplFrame, ImplImage, ImplPermissionPromptCallback, ImplRequestContext, LifeSpanHandler,
-    PermissionHandler, PermissionRequestResult, RenderHandler, RequestContext,
-    RequestContextHandler, RequestContextSettings, Settings, WindowInfo, *,
+    ContentSettingTypes, ContentSettingValues, ContextMenuHandler, ContextMenuParams, EventFlags,
+    ImplBinaryValue, ImplBrowser, ImplBrowserHost, ImplContextMenuParams, ImplFrame, ImplImage,
+    ImplListValue, ImplMenuModel, ImplPermissionPromptCallback, ImplPreferenceManager,
+    ImplRequestContext, ImplRunContextMenuCallback, ImplValue, LifeSpanHandler, MenuItemType,
+    MenuModel, PermissionHandler, PermissionRequestResult, RenderHandler, RequestContext,
+    RequestContextHandler, RequestContextSettings, RunContextMenuCallback, Settings, WindowInfo, *,
 };
 use gtk::prelude::*;
 use gtk::{cairo, gdk, glib};
@@ -420,6 +422,8 @@ fn unread_from_title(title: &str) -> u32 {
 wrap_life_span_handler! {
     struct LifeSpanHandlerBuilder {
         slot: Rc<BrowserSlot>,
+        muted: bool,
+        spell_langs: Vec<String>,
     }
 
     impl LifeSpanHandler {
@@ -430,6 +434,17 @@ wrap_life_span_handler! {
                 *self.slot.host.borrow_mut() = host.clone();
                 if let Some(host) = host {
                     host.was_resized();
+                    // Agora o profile está pronto: aplica notificações e corretor
+                    // (no new() é cedo demais — can_set_preference retorna false).
+                    if let Some(ctx) = host.request_context() {
+                        let value = if self.muted {
+                            ContentSettingValues::BLOCK
+                        } else {
+                            ContentSettingValues::ALLOW
+                        };
+                        ctx.set_content_setting(None, None, ContentSettingTypes::NOTIFICATIONS, value);
+                        apply_spell_prefs(&ctx, &self.spell_langs);
+                    }
                 }
             }
         }
@@ -468,8 +483,8 @@ wrap_life_span_handler! {
 }
 
 impl LifeSpanHandlerBuilder {
-    fn build(slot: Rc<BrowserSlot>) -> LifeSpanHandler {
-        Self::new(slot)
+    fn build(slot: Rc<BrowserSlot>, muted: bool, spell_langs: Vec<String>) -> LifeSpanHandler {
+        Self::new(slot, muted, spell_langs)
     }
 }
 
@@ -479,6 +494,7 @@ wrap_client! {
         display_handler: DisplayHandler,
         life_span_handler: LifeSpanHandler,
         permission_handler: PermissionHandler,
+        context_menu_handler: ContextMenuHandler,
     }
 
     impl Client {
@@ -494,17 +510,182 @@ wrap_client! {
         fn permission_handler(&self) -> Option<PermissionHandler> {
             Some(self.permission_handler.clone())
         }
+        fn context_menu_handler(&self) -> Option<ContextMenuHandler> {
+            Some(self.context_menu_handler.clone())
+        }
     }
 }
 
 impl ClientBuilder {
-    fn build(state: Rc<RenderState>, slot: Rc<BrowserSlot>, icon: ServiceIcon) -> Client {
+    fn build(
+        state: Rc<RenderState>,
+        slot: Rc<BrowserSlot>,
+        icon: ServiceIcon,
+        muted: bool,
+        spell_langs: Vec<String>,
+    ) -> Client {
         Self::new(
             RenderHandlerBuilder::build(state.clone()),
-            DisplayHandlerBuilder::build(state, icon),
-            LifeSpanHandlerBuilder::build(slot),
+            DisplayHandlerBuilder::build(state.clone(), icon),
+            LifeSpanHandlerBuilder::build(slot, muted, spell_langs),
             PermissionHandlerBuilder::build(SyltrPermissionHandler {}),
+            ContextMenuHandlerBuilder::build(state),
         )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ContextMenuHandler — no OSR o menu nativo não aparece; desenhamos um popover
+// GTK a partir do modelo que o CEF fornece (com sugestões de correção,
+// copiar/colar, idiomas do corretor, etc.).
+// ---------------------------------------------------------------------------
+
+wrap_context_menu_handler! {
+    struct ContextMenuHandlerBuilder {
+        state: Rc<RenderState>,
+    }
+
+    impl ContextMenuHandler {
+        fn run_context_menu(
+            &self,
+            _browser: Option<&mut Browser>,
+            _frame: Option<&mut Frame>,
+            params: Option<&mut ContextMenuParams>,
+            model: Option<&mut MenuModel>,
+            callback: Option<&mut RunContextMenuCallback>,
+        ) -> ::std::os::raw::c_int {
+            let (Some(params), Some(model), Some(callback)) = (params, model, callback) else {
+                return 0;
+            };
+            if model.count() == 0 {
+                return 0;
+            }
+            let (x, y) = (params.xcoord(), params.ycoord());
+
+            let popover = gtk::Popover::new();
+            popover.set_parent(&self.state.area);
+            popover.set_has_arrow(false);
+            popover.add_css_class("menu");
+            popover.set_pointing_to(Some(&gdk::Rectangle::new(x, y, 1, 1)));
+
+            let done = Rc::new(Cell::new(false));
+            let bx = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .width_request(220)
+                .build();
+            let scroll = gtk::ScrolledWindow::builder()
+                .hscrollbar_policy(gtk::PolicyType::Never)
+                .max_content_height(500)
+                .propagate_natural_height(true)
+                .child(&bx)
+                .build();
+            fill_menu(&bx, model, callback, &done, &popover);
+            popover.set_child(Some(&scroll));
+
+            {
+                let cb = callback.clone();
+                let done = done.clone();
+                popover.connect_closed(move |p| {
+                    if !done.get() {
+                        cb.cancel();
+                    }
+                    p.unparent();
+                });
+            }
+            popover.popup();
+            1
+        }
+    }
+}
+
+impl ContextMenuHandlerBuilder {
+    fn build(state: Rc<RenderState>) -> ContextMenuHandler {
+        Self::new(state)
+    }
+}
+
+/// Preenche o popover com botões a partir do CefMenuModel (recursivo p/
+/// submenus, achatados com um cabeçalho). Cada botão chama callback.cont(id).
+fn fill_menu(
+    bx: &gtk::Box,
+    model: &MenuModel,
+    cb: &RunContextMenuCallback,
+    done: &Rc<Cell<bool>>,
+    pop: &gtk::Popover,
+) {
+    for i in 0..model.count() {
+        let t = model.type_at(i);
+        if t == MenuItemType::SEPARATOR {
+            bx.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        } else if t == MenuItemType::SUBMENU {
+            if let Some(sub) = model.sub_menu_at(i) {
+                let header = gtk::Label::builder()
+                    .label(menu_label(model, i))
+                    .xalign(0.0)
+                    .margin_start(8)
+                    .margin_top(4)
+                    .css_classes(["dim-label", "caption-heading"])
+                    .build();
+                bx.append(&header);
+                fill_menu(bx, &sub, cb, done, pop);
+            }
+        } else {
+            let mut label = menu_label(model, i);
+            if model.is_checked_at(i) != 0 {
+                label = format!("\u{2713} {label}");
+            }
+            let button = gtk::Button::with_label(&label);
+            button.add_css_class("flat");
+            button.set_sensitive(model.is_enabled_at(i) != 0);
+            if let Some(lbl) = button.child().and_downcast::<gtk::Label>() {
+                lbl.set_xalign(0.0);
+            }
+            let id = model.command_id_at(i);
+            let cb = cb.clone();
+            let done = done.clone();
+            let pop = pop.clone();
+            button.connect_clicked(move |_| {
+                done.set(true);
+                cb.cont(id, EventFlags::default());
+                pop.popdown();
+            });
+            bx.append(&button);
+        }
+    }
+}
+
+fn menu_label(model: &MenuModel, i: usize) -> String {
+    let raw = CefString::from(&model.label_at(i)).to_string();
+    // Remove o marcador de mnemônico estilo Windows ('&'); '&&' vira '&'.
+    raw.replace("&&", "\u{1}")
+        .replace('&', "")
+        .replace('\u{1}', "&")
+}
+
+/// Aplica os idiomas do corretor ao contexto (preferências do Chromium).
+fn apply_spell_prefs(ctx: &RequestContext, langs: &[String]) {
+    let enabled = !langs.is_empty();
+    if let Some(mut v) = value_create() {
+        v.set_bool(enabled as _);
+        ctx.set_preference(
+            Some(&CefString::from("browser.enable_spellchecking")),
+            Some(&mut v),
+            None,
+        );
+    }
+    if let (Some(mut list), Some(mut val)) = (list_value_create(), value_create()) {
+        list.set_size(langs.len());
+        for (i, lang) in langs.iter().enumerate() {
+            // Chromium usa hífen e região: pt_BR -> pt-BR.
+            let code = lang.replace('_', "-");
+            list.set_string(i, Some(&CefString::from(code.as_str())));
+        }
+        val.set_list(Some(&mut list));
+        ctx.set_preference(
+            Some(&CefString::from("spellcheck.dictionaries")),
+            Some(&mut val),
+            None,
+        );
     }
 }
 
@@ -620,7 +801,7 @@ impl ServiceView {
         _app: &adw::Application,
         _dnd: Rc<Cell<bool>>,
         muted: bool,
-        _spell_langs: &[String],
+        spell_langs: &[String],
         _media_enabled: bool,
     ) -> Self {
         let area = gtk::DrawingArea::builder()
@@ -668,7 +849,13 @@ impl ServiceView {
         // forma assíncrona, então o browser chega em on_after_created (slot).
         browser_host_create_browser(
             Some(&window_info),
-            Some(&mut ClientBuilder::build(state.clone(), slot.clone(), icon.clone())),
+            Some(&mut ClientBuilder::build(
+                state.clone(),
+                slot.clone(),
+                icon.clone(),
+                muted,
+                spell_langs.to_vec(),
+            )),
             Some(&CefString::from(url)),
             Some(&browser_settings),
             None,
@@ -690,15 +877,8 @@ impl ServiceView {
 
         input::attach(&area, slot.clone());
 
-        // Estado inicial das notificações (silenciado = bloqueado).
-        if let Some(ctx) = &context {
-            let value = if muted {
-                ContentSettingValues::BLOCK
-            } else {
-                ContentSettingValues::ALLOW
-            };
-            ctx.set_content_setting(None, None, ContentSettingTypes::NOTIFICATIONS, value);
-        }
+        // O estado inicial (notificações + corretor) é aplicado em
+        // on_after_created, quando o profile do contexto já está pronto.
 
         let root: gtk::Widget = area.upcast();
 
@@ -744,8 +924,14 @@ impl ServiceView {
         }
     }
 
-    /// (Fase D) verificação ortográfica — CEF tem spellcheck próprio.
-    pub fn set_spell_languages(&self, _langs: &[String]) {}
+    /// Define os idiomas do corretor ortográfico (Chromium tem o próprio,
+    /// separado do hunspell do sistema). `pt_BR` -> `pt-BR`; o Chromium baixa
+    /// o dicionário `.bdic` correspondente.
+    pub fn set_spell_languages(&self, langs: &[String]) {
+        if let Some(ctx) = &self.context {
+            apply_spell_prefs(ctx, langs);
+        }
+    }
 
     /// (Fase D) mídia/chamadas — no Chromium funcionam nativamente.
     pub fn set_media_enabled(&self, _enabled: bool) {}

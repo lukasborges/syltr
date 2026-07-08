@@ -56,3 +56,5 @@ cef-spike/target/
 packaging/src/
 packaging/pkg/
 packaging/*.pkg.tar.zst
+packaging/syltr/
+test/
