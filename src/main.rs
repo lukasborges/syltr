@@ -80,7 +80,10 @@ fn main() -> glib::ExitCode {
 /// As strings-fonte estão em inglês; traduções ficam em <data>/locale.
 fn init_i18n() {
     gettextrs::setlocale(gettextrs::LocaleCategory::LcAll, "");
-    let locale_dir = gtk::glib::user_data_dir().join("locale");
+    // Pacote instala em /usr/share/locale; permite sobrepor via SYLTR_LOCALE_DIR.
+    let locale_dir = std::env::var_os("SYLTR_LOCALE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/usr/share/locale"));
     let _ = gettextrs::bindtextdomain("syltr", locale_dir);
     let _ = gettextrs::bind_textdomain_codeset("syltr", "UTF-8");
     let _ = gettextrs::textdomain("syltr");
