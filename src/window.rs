@@ -448,16 +448,28 @@ impl Ui {
     fn set_current_muted(&self, muted: bool) {
         let cur = self.state.borrow().current.clone();
         if let Some(id) = cur {
+            let dnd = self.dnd.get();
             {
                 let mut st = self.state.borrow_mut();
                 if let Some(svc) = st.services.iter_mut().find(|s| s.id == id) {
                     svc.muted = muted;
                 }
                 if let Some(view) = st.views.get(&id) {
-                    view.set_muted(muted);
+                    view.set_notifications_enabled(!muted && !dnd);
                 }
             }
             self.save();
+        }
+    }
+
+    /// Reaplica o estado de notificações a todos os serviços (após mudar DND).
+    fn apply_all_notifications(&self) {
+        let dnd = self.dnd.get();
+        let st = self.state.borrow();
+        for svc in &st.services {
+            if let Some(view) = st.views.get(&svc.id) {
+                view.set_notifications_enabled(!svc.muted && !dnd);
+            }
         }
     }
 
@@ -639,6 +651,7 @@ fn wire_actions(app: &adw::Application, ui: &Ui) {
         action.connect_change_state(move |a, value| {
             if let Some(v) = value {
                 uic.dnd.set(v.get().unwrap_or(false));
+                uic.apply_all_notifications();
                 a.set_state(v);
             }
         });

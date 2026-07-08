@@ -12,9 +12,10 @@ use std::rc::Rc;
 use cef::{
     args::Args, rc::Rc as _, App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings,
     Client, CommandLine, CursorInfo, CursorType, DisplayHandler, DownloadImageCallback,
-    ImplBinaryValue, ImplBrowser, ImplBrowserHost, ImplFrame, ImplImage,
-    ImplPermissionPromptCallback, LifeSpanHandler, PermissionHandler, PermissionRequestResult,
-    RenderHandler, RequestContextHandler, RequestContextSettings, Settings, WindowInfo, *,
+    ContentSettingTypes, ContentSettingValues, ImplBinaryValue, ImplBrowser, ImplBrowserHost,
+    ImplFrame, ImplImage, ImplPermissionPromptCallback, ImplRequestContext, LifeSpanHandler,
+    PermissionHandler, PermissionRequestResult, RenderHandler, RequestContext,
+    RequestContextHandler, RequestContextSettings, Settings, WindowInfo, *,
 };
 use gtk::prelude::*;
 use gtk::{cairo, gdk, glib};
@@ -210,6 +211,12 @@ fn draw(state: &RenderState, cr: &cairo::Context) {
         }
     }
     surface.mark_dirty();
+    // HiDPI: o buffer do CEF vem em pixels de dispositivo (logical * escala);
+    // o device_scale faz o Cairo mapear de volta para o tamanho lógico.
+    let scale = state.size.get().2 as f64;
+    if scale > 0.0 {
+        surface.set_device_scale(scale, scale);
+    }
     let _ = cr.set_source_surface(&surface, 0.0, 0.0);
     let _ = cr.paint();
 }
@@ -599,7 +606,7 @@ pub struct ServiceView {
     root: gtk::Widget,
     slot: Rc<BrowserSlot>,
     icon: ServiceIcon,
-    muted: Rc<Cell<bool>>,
+    context: Option<RequestContext>,
     home: String,
 }
 
@@ -672,8 +679,8 @@ impl ServiceView {
         {
             let state = state.clone();
             let slot = slot.clone();
-            area.connect_resize(move |_, w, h| {
-                let scale = state.size.get().2;
+            area.connect_resize(move |area, w, h| {
+                let scale = area.scale_factor().max(1) as f32;
                 state.size.set((w.max(1), h.max(1), scale));
                 if let Some(host) = slot.host() {
                     host.was_resized();
@@ -683,14 +690,37 @@ impl ServiceView {
 
         input::attach(&area, slot.clone());
 
+        // Estado inicial das notificações (silenciado = bloqueado).
+        if let Some(ctx) = &context {
+            let value = if muted {
+                ContentSettingValues::BLOCK
+            } else {
+                ContentSettingValues::ALLOW
+            };
+            ctx.set_content_setting(None, None, ContentSettingTypes::NOTIFICATIONS, value);
+        }
+
         let root: gtk::Widget = area.upcast();
 
         Self {
             root,
             slot,
             icon,
-            muted: Rc::new(Cell::new(muted)),
+            context,
             home: url.to_string(),
+        }
+    }
+
+    /// Liga/desliga as notificações do serviço (mute/não-perturbe), bloqueando
+    /// no nível do content-setting do contexto — o Chromium para de exibi-las.
+    pub fn set_notifications_enabled(&self, enabled: bool) {
+        if let Some(ctx) = &self.context {
+            let value = if enabled {
+                ContentSettingValues::ALLOW
+            } else {
+                ContentSettingValues::BLOCK
+            };
+            ctx.set_content_setting(None, None, ContentSettingTypes::NOTIFICATIONS, value);
         }
     }
 
@@ -712,10 +742,6 @@ impl ServiceView {
         if let Some(frame) = self.slot.browser().and_then(|b| b.main_frame()) {
             frame.load_url(Some(&CefString::from(self.home.as_str())));
         }
-    }
-
-    pub fn set_muted(&self, muted: bool) {
-        self.muted.set(muted);
     }
 
     /// (Fase D) verificação ortográfica — CEF tem spellcheck próprio.
