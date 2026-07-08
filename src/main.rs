@@ -7,6 +7,7 @@ mod catalog;
 mod config;
 mod engine;
 mod icon;
+mod input;
 mod window;
 
 use adw::prelude::*;
@@ -53,10 +54,10 @@ const STYLE: &str = "
 ";
 
 fn main() -> glib::ExitCode {
-    // Evita SIGSEGV do processo web em sites pesados (ex.: Teams ao rolar):
-    // o renderizador DMABUF do WebKitGTK crasha em alguns drivers de GPU.
-    // Precisa ser definido antes de o WebKit iniciar os processos.
-    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    // Bootstrap do CEF ANTES de GTK: no subprocesso, sai imediatamente.
+    if !engine::init_cef() {
+        return glib::ExitCode::SUCCESS;
+    }
 
     init_i18n();
 
@@ -68,7 +69,9 @@ fn main() -> glib::ExitCode {
     app.connect_startup(|_| load_css());
     app.connect_activate(window::build);
 
-    app.run()
+    let code = app.run();
+    engine::shutdown_cef();
+    code
 }
 
 /// Configura a tradução da interface conforme o idioma do sistema.

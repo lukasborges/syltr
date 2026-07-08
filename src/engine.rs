@@ -1,453 +1,575 @@
-//! Camada de abstração da engine web.
+//! Camada de engine web — agora **CEF (Chromium)** em modo offscreen (OSR).
 //!
-//! Hoje o backend é o **WebKitGTK 6** (engine WebKit), nativo e estável no
-//! GNOME/Wayland. O objetivo é que o resto do app (janela, sidebar, ações)
-//! use APENAS a API pública de [`ServiceView`] e nunca toque no `webkit6`
-//! diretamente — assim a migração futura para **CEF (engine Chromium)** fica
-//! contida neste único arquivo: basta reimplementar `ServiceView` com o crate
-//! `cef` renderizando offscreen dentro de um `gtk::Widget`.
+//! O resto do app usa apenas a API pública de [`ServiceView`]; a integração
+//! com o CEF (multiprocesso, message loop, OSR→Cairo, input) fica contida
+//! aqui. Cada serviço é um browser CEF windowless renderizando num
+//! `GtkDrawingArea`, com sessão/cache isolados por serviço.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 
-use base64::Engine;
-use gtk::gdk;
+use cef::{
+    args::Args, rc::Rc as _, App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings,
+    Client, CommandLine, CursorInfo, CursorType, DisplayHandler, ImplBrowser, ImplBrowserHost,
+    ImplFrame, LifeSpanHandler, RenderHandler, RequestContextHandler, RequestContextSettings,
+    Settings, WindowInfo, *,
+};
+use gtk::cairo;
 use gtk::prelude::*;
-use webkit6::prelude::*;
 
 use crate::icon::ServiceIcon;
+use crate::input;
 
-/// JS injetado ao fim do carregamento: acha o melhor ícone declarado na página,
-/// rasteriza num canvas 64x64 (o WebKit renderiza qualquer formato, inclusive
-/// SVG) e posta o data URL PNG de volta via message handler `faviconReady`.
-const FAVICON_JS: &str = r#"
-(function () {
-  try {
-    const links = [...document.querySelectorAll(
-      'link[rel~="icon"],link[rel="shortcut icon"],link[rel="apple-touch-icon"]')];
-    const apple = links.find(l => (l.rel || '').includes('apple'));
-    const svg = links.find(l => ((l.type || '').includes('svg')) || (l.href || '').endsWith('.svg'));
-    const href = (apple && apple.href) || (svg && svg.href)
-      || (links[0] && links[0].href) || (location.origin + '/favicon.ico');
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      try {
-        const nat = Math.max(img.naturalWidth || 0, img.naturalHeight || 0) || 64;
-        const isSvg = /\.svg(\?|$)/i.test(img.src);
-        // Não amplia raster (evita borrão); SVG rasteriza em alta resolução.
-        const target = isSvg ? 128 : Math.min(nat, 128);
-        const c = document.createElement('canvas');
-        c.width = target; c.height = target;
-        const ctx = c.getContext('2d');
-        ctx.clearRect(0, 0, target, target);
-        ctx.drawImage(img, 0, 0, target, target);
-        window.webkit.messageHandlers.faviconReady.postMessage(c.toDataURL('image/png'));
-      } catch (e) {}
-    };
-    img.src = href;
-  } catch (e) {}
-})();
-"#;
+// ===========================================================================
+// Bootstrap global do CEF
+// ===========================================================================
 
-/// JS injetado uma vez: observa o título (e um intervalo de reserva) e posta a
-/// contagem de não lidas. Heurística genérica: número entre parênteses/colchetes
-/// ou no início do título (ex.: "(5) WhatsApp", "Inbox (12) - ...").
-const UNREAD_JS: &str = r#"
-(function () {
-  if (window.__syltrUnread) return;
-  window.__syltrUnread = true;
-  const post = () => {
-    try {
-      let n = 0;
-      const t = document.title || '';
-      const m = t.match(/[\(\[\{]\s*(\d+)\+?\s*[\)\]\}]/) || t.match(/^\s*(\d+)\s+/);
-      if (m) n = parseInt(m[1], 10) || 0;
-      window.webkit.messageHandlers.unreadCount.postMessage(n);
-    } catch (e) {}
-  };
-  post();
-  try {
-    const el = document.querySelector('title');
-    if (el) new MutationObserver(post).observe(el,
-      { childList: true, characterData: true, subtree: true });
-  } catch (e) {}
-  setInterval(post, 4000);
-})();
-"#;
+/// Inicializa o CEF. Retorna `true` no processo browser (o app deve seguir) e
+/// `false` num subprocesso do CEF (o `main` deve sair imediatamente).
+/// DEVE ser chamado bem no início do `main`, antes de GTK/libadwaita.
+pub fn init_cef() -> bool {
+    let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
 
-/// Script injetado no início de cada página (compatibilidade):
-/// 1) faz o site enxergar a permissão de notificação como concedida (o WebKit
-///    não persiste a permissão, então o WhatsApp mostrava o banner sempre);
-/// 2) faz polyfill de requestIdleCallback/cancelIdleCallback, que o WebKitGTK
-///    não expõe e que serviços como o Microsoft Teams exigem (senão quebram
-///    com "Can't find variable: requestIdleCallback").
-const COMPAT_JS: &str = r#"
-(function () {
-  try {
-    Object.defineProperty(Notification, 'permission', {
-      configurable: true,
-      get: () => 'granted',
-    });
-    Notification.requestPermission = function (cb) {
-      if (typeof cb === 'function') cb('granted');
-      return Promise.resolve('granted');
-    };
-  } catch (e) {}
-  try {
-    if (typeof window.requestIdleCallback !== 'function') {
-      // Idle "de verdade": atraso ~50ms (respeita options.timeout) para não
-      // inundar o event loop quando o app reagenda idle callbacks em loop.
-      window.requestIdleCallback = function (cb, opts) {
-        var t = (opts && opts.timeout) ? Math.min(opts.timeout, 100) : 50;
-        return setTimeout(function () {
-          var start = Date.now();
-          cb({
-            didTimeout: false,
-            timeRemaining: function () { return Math.max(0, 16 - (Date.now() - start)); },
-          });
-        }, t);
-      };
-      window.cancelIdleCallback = function (id) { clearTimeout(id); };
+    let args = Args::new();
+    let cmd = args.as_cmd_line().unwrap();
+    let is_browser_process = cmd.has_switch(Some(&CefString::from("type"))) != 1;
+
+    let mut app = AppBuilder::build(SyltrApp {});
+    let ret = execute_process(Some(args.as_main_args()), Some(&mut app), std::ptr::null_mut());
+    if !is_browser_process {
+        return false;
     }
-  } catch (e) {}
-})();
-"#;
+    assert_eq!(ret, -1, "processo browser não deveria ser um subprocesso");
 
-/// Habilita features de runtime do WebKit desativadas por padrão que alguns
-/// serviços exigem — em especial `requestIdleCallback` (usado pelo Teams).
-/// Ligar a flag nativa evita o polyfill (que não agenda de verdade como idle).
-fn enable_runtime_features(settings: &webkit6::Settings) {
-    let Some(list) = webkit6::Settings::all_features() else {
+    // Raiz dos caches: cada serviço terá seu cache_path como subdiretório
+    // disto (exigência do runtime Chrome do CEF para criar perfis).
+    let root_cache = gtk::glib::user_data_dir().join(crate::APP_ID).join("sessions");
+    let _ = std::fs::create_dir_all(&root_cache);
+
+    let mut settings = Settings {
+        windowless_rendering_enabled: 1,
+        external_message_pump: 1,
+        no_sandbox: 1,
+        root_cache_path: CefString::from(root_cache.to_str().unwrap_or_default()),
+        ..Default::default()
+    };
+    // Recursos do CEF: via CEF_PATH em dev; empacotados junto do binário no
+    // deploy (Fase E). Sem a variável, o CEF procura ao lado do executável.
+    if let Ok(dir) = std::env::var("CEF_PATH") {
+        if !dir.is_empty() {
+            settings.resources_dir_path = CefString::from(dir.as_str());
+            settings.locales_dir_path = CefString::from(format!("{dir}/locales").as_str());
+        }
+    }
+    assert_eq!(
+        initialize(Some(args.as_main_args()), Some(&settings), Some(&mut app), std::ptr::null_mut()),
+        1,
+        "falha ao inicializar o CEF"
+    );
+    true
+}
+
+/// Bomba o message loop do CEF a partir do loop do GLib. Chamar uma vez.
+pub fn start_pump() {
+    gtk::glib::timeout_add_local(std::time::Duration::from_millis(15), || {
+        do_message_loop_work();
+        gtk::glib::ControlFlow::Continue
+    });
+}
+
+/// Encerra o CEF (chamar ao sair).
+pub fn shutdown_cef() {
+    shutdown();
+}
+
+// ===========================================================================
+// App + BrowserProcessHandler (globais)
+// ===========================================================================
+
+#[derive(Clone)]
+struct SyltrApp {}
+
+wrap_app! {
+    struct AppBuilder {
+        app: SyltrApp,
+    }
+
+    impl App {
+        fn on_before_command_line_processing(
+            &self,
+            _process_type: Option<&CefStringUtf16>,
+            command_line: Option<&mut CommandLine>,
+        ) {
+            let Some(cmd) = command_line else { return };
+            cmd.append_switch(Some(&"no-sandbox".into()));
+            cmd.append_switch(Some(&"enable-logging=stderr".into()));
+        }
+
+        fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
+            Some(BrowserProcessHandlerBuilder::build(SyltrBrowserProcessHandler {}))
+        }
+    }
+}
+
+impl AppBuilder {
+    fn build(app: SyltrApp) -> App {
+        Self::new(app)
+    }
+}
+
+#[derive(Clone)]
+struct SyltrBrowserProcessHandler {}
+
+wrap_browser_process_handler! {
+    struct BrowserProcessHandlerBuilder {
+        handler: SyltrBrowserProcessHandler,
+    }
+
+    impl BrowserProcessHandler {
+        fn on_before_child_process_launch(&self, command_line: Option<&mut CommandLine>) {
+            if let Some(cmd) = command_line {
+                cmd.append_switch(Some(&"no-sandbox".into()));
+            }
+        }
+    }
+}
+
+impl BrowserProcessHandlerBuilder {
+    fn build(handler: SyltrBrowserProcessHandler) -> BrowserProcessHandler {
+        Self::new(handler)
+    }
+}
+
+// ===========================================================================
+// Estado de render por serviço + desenho Cairo
+// ===========================================================================
+
+struct PaintBuffer {
+    data: Vec<u8>,
+    w: i32,
+    h: i32,
+}
+
+struct RenderState {
+    buffer: RefCell<Option<PaintBuffer>>,
+    /// (largura, altura, fator de escala) lógicos da view
+    size: Cell<(i32, i32, f32)>,
+    area: gtk::DrawingArea,
+}
+
+/// Browser/host preenchidos assincronamente em `on_after_created`.
+pub struct BrowserSlot {
+    browser: RefCell<Option<Browser>>,
+    host: RefCell<Option<BrowserHost>>,
+}
+
+impl BrowserSlot {
+    fn new() -> Rc<Self> {
+        Rc::new(Self {
+            browser: RefCell::new(None),
+            host: RefCell::new(None),
+        })
+    }
+    pub fn host(&self) -> Option<BrowserHost> {
+        self.host.borrow().clone()
+    }
+    fn browser(&self) -> Option<Browser> {
+        self.browser.borrow().clone()
+    }
+    pub fn main_frame(&self) -> Option<Frame> {
+        self.browser().and_then(|b| b.main_frame())
+    }
+}
+
+fn draw(state: &RenderState, cr: &cairo::Context) {
+    let buf = state.buffer.borrow();
+    let Some(buf) = buf.as_ref() else { return };
+    if buf.w <= 0 || buf.h <= 0 {
+        return;
+    }
+    let Ok(mut surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, buf.w, buf.h) else {
         return;
     };
-    for i in 0..list.length() {
-        let Some(feature) = list.get(i) else { continue };
-        let id = feature
-            .identifier()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-        if id.to_lowercase().contains("idlecallback") {
-            settings.set_feature_enabled(&feature, true);
+    let sstride = surface.stride() as usize;
+    let rstride = buf.w as usize * 4;
+    if let Ok(mut sdata) = surface.data() {
+        for y in 0..buf.h as usize {
+            sdata[y * sstride..y * sstride + rstride]
+                .copy_from_slice(&buf.data[y * rstride..y * rstride + rstride]);
+        }
+    }
+    surface.mark_dirty();
+    let _ = cr.set_source_surface(&surface, 0.0, 0.0);
+    let _ = cr.paint();
+}
+
+// ===========================================================================
+// RenderHandler + DisplayHandler + Client + RequestContextHandler (por serviço)
+// ===========================================================================
+
+wrap_render_handler! {
+    struct RenderHandlerBuilder {
+        state: Rc<RenderState>,
+    }
+
+    impl RenderHandler {
+        fn view_rect(&self, _browser: Option<&mut Browser>, rect: Option<&mut Rect>) {
+            if let Some(rect) = rect {
+                let (w, h, _) = self.state.size.get();
+                rect.x = 0;
+                rect.y = 0;
+                rect.width = w.max(1);
+                rect.height = h.max(1);
+            }
+        }
+
+        fn screen_info(
+            &self,
+            _browser: Option<&mut Browser>,
+            screen_info: Option<&mut ScreenInfo>,
+        ) -> ::std::os::raw::c_int {
+            if let Some(si) = screen_info {
+                si.device_scale_factor = self.state.size.get().2;
+                return 1;
+            }
+            0
+        }
+
+        fn on_paint(
+            &self,
+            _browser: Option<&mut Browser>,
+            _type_: PaintElementType,
+            _dirty_rects: Option<&[Rect]>,
+            buffer: *const u8,
+            width: ::std::os::raw::c_int,
+            height: ::std::os::raw::c_int,
+        ) {
+            if buffer.is_null() || width <= 0 || height <= 0 {
+                return;
+            }
+            let size = width as usize * height as usize * 4;
+            let slice = unsafe { std::slice::from_raw_parts(buffer, size) };
+            {
+                let mut buf = self.state.buffer.borrow_mut();
+                match buf.as_mut() {
+                    Some(b) if b.w == width && b.h == height => b.data.copy_from_slice(slice),
+                    _ => {
+                        *buf = Some(PaintBuffer {
+                            data: slice.to_vec(),
+                            w: width,
+                            h: height,
+                        })
+                    }
+                }
+            }
+            self.state.area.queue_draw();
         }
     }
 }
 
-/// Aplica a verificação ortográfica no contexto da webview, nos idiomas dados
-/// (lista vazia desliga).
-fn apply_spell(webview: &webkit6::WebView, langs: &[String]) {
-    if let Some(context) = webview.context().or_else(webkit6::WebContext::default) {
-        context.set_spell_checking_enabled(!langs.is_empty());
-        if !langs.is_empty() {
-            let refs: Vec<&str> = langs.iter().map(String::as_str).collect();
-            context.set_spell_checking_languages(&refs);
+impl RenderHandlerBuilder {
+    fn build(state: Rc<RenderState>) -> RenderHandler {
+        Self::new(state)
+    }
+}
+
+wrap_display_handler! {
+    struct DisplayHandlerBuilder {
+        state: Rc<RenderState>,
+    }
+
+    impl DisplayHandler {
+        fn on_cursor_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            _cursor: ::std::os::raw::c_ulong,
+            type_: CursorType,
+            _custom_cursor_info: Option<&CursorInfo>,
+        ) -> ::std::os::raw::c_int {
+            self.state.area.set_cursor_from_name(Some(cursor_name(type_)));
+            1
         }
     }
 }
 
-/// Captura de erros de JS (ativada por SYLTR_DEBUG): encaminha console.error/
-/// warn, window.onerror e promessas rejeitadas para o handler `consoleCapture`.
-const CONSOLE_JS: &str = r#"
-(function () {
-  const post = (kind, msg) => {
-    try { window.webkit.messageHandlers.consoleCapture.postMessage(kind + ': ' + msg); } catch (e) {}
-  };
-  const fmt = (args) => Array.from(args).map((a) => {
-    try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch (e) { return String(a); }
-  }).join(' ');
-  ['error', 'warn'].forEach((name) => {
-    const orig = console[name];
-    console[name] = function () { post(name, fmt(arguments)); return orig.apply(console, arguments); };
-  });
-  window.addEventListener('error', (e) =>
-    post('onerror', (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || '')));
-  window.addEventListener('unhandledrejection', (e) =>
-    post('unhandledrejection', String((e.reason && (e.reason.stack || e.reason.message)) || e.reason)));
-})();
-"#;
-
-fn debug_enabled() -> bool {
-    std::env::var_os("SYLTR_DEBUG").is_some()
+impl DisplayHandlerBuilder {
+    fn build(state: Rc<RenderState>) -> DisplayHandler {
+        Self::new(state)
+    }
 }
 
-/// Executa um script na webview (fire-and-forget).
-fn run_js(webview: &webkit6::WebView, script: &str) {
-    webview.evaluate_javascript(
-        script,
-        None,
-        None,
-        None::<&gtk::gio::Cancellable>,
-        |_| {},
-    );
+wrap_life_span_handler! {
+    struct LifeSpanHandlerBuilder {
+        slot: Rc<BrowserSlot>,
+    }
+
+    impl LifeSpanHandler {
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            if let Some(browser) = browser {
+                let host = browser.host();
+                *self.slot.browser.borrow_mut() = Some(browser.clone());
+                *self.slot.host.borrow_mut() = host.clone();
+                if let Some(host) = host {
+                    host.was_resized();
+                }
+            }
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn on_before_popup(
+            &self,
+            browser: Option<&mut Browser>,
+            frame: Option<&mut Frame>,
+            _popup_id: ::std::os::raw::c_int,
+            target_url: Option<&CefString>,
+            _target_frame_name: Option<&CefString>,
+            _target_disposition: WindowOpenDisposition,
+            _user_gesture: ::std::os::raw::c_int,
+            _popup_features: Option<&PopupFeatures>,
+            _window_info: Option<&mut WindowInfo>,
+            _client: Option<&mut Option<Client>>,
+            _settings: Option<&mut BrowserSettings>,
+            _extra_info: Option<&mut Option<DictionaryValue>>,
+            _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
+        ) -> ::std::os::raw::c_int {
+            // Cancela a nova janela e carrega a URL na própria view do serviço
+            // (login "Entrar com Google" etc. abre in-place).
+            if let Some(url) = target_url {
+                if let Some(frame) = frame {
+                    frame.load_url(Some(url));
+                } else if let Some(frame) =
+                    browser.and_then(|b| b.main_frame())
+                {
+                    frame.load_url(Some(url));
+                }
+            }
+            1
+        }
+    }
 }
 
-/// Uma visão web isolada de um serviço, com sessão/cookies próprios.
-///
-/// Também é dona do seu próprio ícone, que mostra a inicial do serviço e é
-/// trocado automaticamente pelo favicon do site assim que ele carrega — o
-/// binding é conectado uma única vez, aqui.
+impl LifeSpanHandlerBuilder {
+    fn build(slot: Rc<BrowserSlot>) -> LifeSpanHandler {
+        Self::new(slot)
+    }
+}
+
+wrap_client! {
+    struct ClientBuilder {
+        render_handler: RenderHandler,
+        display_handler: DisplayHandler,
+        life_span_handler: LifeSpanHandler,
+    }
+
+    impl Client {
+        fn render_handler(&self) -> Option<RenderHandler> {
+            Some(self.render_handler.clone())
+        }
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(self.display_handler.clone())
+        }
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(self.life_span_handler.clone())
+        }
+    }
+}
+
+impl ClientBuilder {
+    fn build(state: Rc<RenderState>, slot: Rc<BrowserSlot>) -> Client {
+        Self::new(
+            RenderHandlerBuilder::build(state.clone()),
+            DisplayHandlerBuilder::build(state),
+            LifeSpanHandlerBuilder::build(slot),
+        )
+    }
+}
+
+#[derive(Clone)]
+struct SyltrRequestContextHandler {}
+
+wrap_request_context_handler! {
+    struct RequestContextHandlerBuilder {
+        handler: SyltrRequestContextHandler,
+    }
+
+    impl RequestContextHandler {}
+}
+
+impl RequestContextHandlerBuilder {
+    fn build(handler: SyltrRequestContextHandler) -> RequestContextHandler {
+        Self::new(handler)
+    }
+}
+
+fn cursor_name(t: CursorType) -> &'static str {
+    if t == CursorType::HAND {
+        "pointer"
+    } else if t == CursorType::IBEAM {
+        "text"
+    } else if t == CursorType::CROSS {
+        "crosshair"
+    } else if t == CursorType::WAIT {
+        "wait"
+    } else if t == CursorType::HELP {
+        "help"
+    } else if t == CursorType::MOVE {
+        "move"
+    } else if t == CursorType::PROGRESS {
+        "progress"
+    } else if t == CursorType::NOTALLOWED {
+        "not-allowed"
+    } else if t == CursorType::NODROP {
+        "no-drop"
+    } else if t == CursorType::COPY {
+        "copy"
+    } else if t == CursorType::CONTEXTMENU {
+        "context-menu"
+    } else if t == CursorType::COLUMNRESIZE {
+        "col-resize"
+    } else if t == CursorType::ROWRESIZE {
+        "row-resize"
+    } else if t == CursorType::EASTWESTRESIZE {
+        "ew-resize"
+    } else if t == CursorType::NORTHSOUTHRESIZE {
+        "ns-resize"
+    } else if t == CursorType::ZOOMIN {
+        "zoom-in"
+    } else if t == CursorType::NONE {
+        "none"
+    } else {
+        "default"
+    }
+}
+
+// ===========================================================================
+// ServiceView — API pública (igual à versão WebKit)
+// ===========================================================================
+
 #[derive(Clone)]
 pub struct ServiceView {
     root: gtk::Widget,
-    webview: webkit6::WebView,
+    slot: Rc<BrowserSlot>,
     icon: ServiceIcon,
     muted: Rc<Cell<bool>>,
     home: String,
 }
 
 impl ServiceView {
-    /// Cria a visão de um serviço apontando para `url`, com armazenamento
-    /// persistente e isolado em `session_dir`. `app`/`dnd`/`muted` controlam
-    /// o encaminhamento de notificações ao desktop.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        id: &str,
+        _id: &str,
         name: &str,
         url: &str,
         session_dir: &Path,
-        app: &adw::Application,
-        dnd: Rc<Cell<bool>>,
+        _app: &adw::Application,
+        _dnd: Rc<Cell<bool>>,
         muted: bool,
-        spell_langs: &[String],
-        media_enabled: bool,
+        _spell_langs: &[String],
+        _media_enabled: bool,
     ) -> Self {
-        let data = session_dir.join("data");
-        let cache = session_dir.join("cache");
-        let _ = std::fs::create_dir_all(&data);
-        let _ = std::fs::create_dir_all(&cache);
-
-        // Sessão de rede isolada: cada serviço tem seus próprios cookies e
-        // armazenamento (equivalente às contas separadas do Franz).
-        let session =
-            webkit6::NetworkSession::new(data.to_str(), cache.to_str());
-        if let Some(cookies) = session.cookie_manager() {
-            if let Some(path) = data.join("cookies.sqlite").to_str() {
-                cookies.set_persistent_storage(
-                    path,
-                    webkit6::CookiePersistentStorage::Sqlite,
-                );
-            }
-        }
-        // Habilita favicons para usá-los como ícone no rail lateral.
-        if let Some(dm) = session.website_data_manager() {
-            dm.set_favicons_enabled(true);
-        }
-
-        let settings = webkit6::Settings::new();
-        settings.set_enable_developer_extras(true);
-        settings.set_enable_smooth_scrolling(true);
-        settings.set_media_playback_requires_user_gesture(false);
-        // Renderização por software: o processo web do WebKit crasha ao
-        // renderizar o Teams com aceleração de HW (bug de GPU/compositing).
-        settings.set_hardware_acceleration_policy(
-            webkit6::HardwareAccelerationPolicy::Never,
-        );
-        // Captura de mídia/WebRTC (câmera, mic, chamadas). Off por padrão: é o
-        // que faz o WebKit iniciar o monitor de dispositivos (GStreamer/
-        // PipeWire), que segfaulta em alguns sistemas. Ligável pelo menu.
-        settings.set_enable_media_stream(media_enabled);
-        settings.set_enable_webrtc(media_enabled);
-        // Alguns serviços checam a UA; a padrão do WebKit já funciona na maioria.
-        enable_runtime_features(&settings);
-
-        // Handlers que recebem do JS: favicon rasterizado (PNG) e não lidas.
-        let ucm = webkit6::UserContentManager::new();
-        ucm.register_script_message_handler("faviconReady", None);
-        ucm.register_script_message_handler("unreadCount", None);
-        // Shims de compatibilidade no início da página (ver COMPAT_JS).
-        ucm.add_script(&webkit6::UserScript::new(
-            COMPAT_JS,
-            webkit6::UserContentInjectedFrames::AllFrames,
-            webkit6::UserScriptInjectionTime::Start,
-            &[],
-            &[],
-        ));
-        // Captura de erros JS para o log (SYLTR_DEBUG=1).
-        if debug_enabled() {
-            ucm.register_script_message_handler("consoleCapture", None);
-            ucm.add_script(&webkit6::UserScript::new(
-                CONSOLE_JS,
-                webkit6::UserContentInjectedFrames::AllFrames,
-                webkit6::UserScriptInjectionTime::Start,
-                &[],
-                &[],
-            ));
-            let tag = name.to_string();
-            ucm.connect_script_message_received(Some("consoleCapture"), move |_, value| {
-                eprintln!("syltr[{tag}] {}", value.to_str());
-            });
-        }
-
-        let webview = webkit6::WebView::builder()
-            .network_session(&session)
-            .settings(&settings)
-            .user_content_manager(&ucm)
-            .vexpand(true)
+        let area = gtk::DrawingArea::builder()
             .hexpand(true)
+            .vexpand(true)
             .build();
 
-        // Verificação ortográfica (backend enchant/hunspell), nos idiomas
-        // escolhidos. Aplicada ao contexto compartilhado das webviews.
-        apply_spell(&webview, spell_langs);
-
-        // Concede permissões (notificações, mídia) automaticamente — é um
-        // cliente dedicado de mensagens, então o comportamento esperado é
-        // sempre permitir.
-        webview.connect_permission_request(|_, request| {
-            request.allow();
-            true
+        let state = Rc::new(RenderState {
+            buffer: RefCell::new(None),
+            size: Cell::new((800, 600, 1.0)),
+            area: area.clone(),
         });
 
-        // Encaminha as notificações do site para o desktop, respeitando o
-        // silenciar do serviço e o "não perturbe" global.
-        let muted = Rc::new(Cell::new(muted));
         {
-            let app = app.clone();
-            let dnd = dnd.clone();
-            let muted = muted.clone();
-            let id = id.to_string();
-            let name = name.to_string();
-            webview.connect_show_notification(move |_wv, notification| {
-                if dnd.get() || muted.get() {
-                    return true; // suprime (assumimos o controle da notificação)
+            let state = state.clone();
+            area.set_draw_func(move |_, cr, _w, _h| draw(&state, cr));
+        }
+
+        // Sessão/cache isolados por serviço. O caminho é o próprio session_dir
+        // (subdiretório de root_cache_path), como o runtime Chrome exige.
+        let _ = std::fs::create_dir_all(session_dir);
+        let rc_settings = RequestContextSettings {
+            cache_path: CefString::from(session_dir.to_str().unwrap_or_default()),
+            ..Default::default()
+        };
+        let mut context = request_context_create_context(
+            Some(&rc_settings),
+            Some(&mut RequestContextHandlerBuilder::build(SyltrRequestContextHandler {})),
+        );
+
+        let window_info = WindowInfo {
+            windowless_rendering_enabled: 1,
+            ..Default::default()
+        };
+        let browser_settings = BrowserSettings {
+            windowless_frame_rate: 60,
+            ..Default::default()
+        };
+        let slot = BrowserSlot::new();
+        // Criação ASSÍNCRONA: o runtime Chrome cria o Profile por serviço de
+        // forma assíncrona, então o browser chega em on_after_created (slot).
+        browser_host_create_browser(
+            Some(&window_info),
+            Some(&mut ClientBuilder::build(state.clone(), slot.clone())),
+            Some(&CefString::from(url)),
+            Some(&browser_settings),
+            None,
+            context.as_mut(),
+        );
+
+        // Redimensionamento: atualiza a view e avisa o CEF.
+        {
+            let state = state.clone();
+            let slot = slot.clone();
+            area.connect_resize(move |_, w, h| {
+                let scale = state.size.get().2;
+                state.size.set((w.max(1), h.max(1), scale));
+                if let Some(host) = slot.host() {
+                    host.was_resized();
                 }
-                let title = notification
-                    .title()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| name.clone());
-                let notif = gtk::gio::Notification::new(&title);
-                if let Some(body) = notification.body() {
-                    notif.set_body(Some(&body));
-                }
-                app.send_notification(Some(&id), &notif);
-                true
             });
         }
 
-        // "Nova janela"/popup (ex.: "Entrar com Google", target=_blank):
-        // navega na PRÓPRIA webview do serviço, em vez de abrir popup ou o
-        // navegador externo. Como é a mesma view, a sessão/cookies do login
-        // ficam no serviço; o provedor OAuth redireciona de volta ao final.
-        webview.connect_create(|wv, action| {
-            if let Some(uri) = action.request().and_then(|r| r.uri()) {
-                if !uri.is_empty() {
-                    wv.load_uri(&uri);
-                }
-            }
-            None::<gtk::Widget>
-        });
+        input::attach(&area, slot.clone());
 
-        // Ícone do rail: inicial do nome como fallback, favicon quando disponível.
         let icon = ServiceIcon::new(name);
-        // Caminho rápido: favicon raster que o WebKit já rastreia.
-        icon.set_favicon(webview.favicon().as_ref());
-        {
-            let icon = icon.clone();
-            webview.connect_favicon_notify(move |wv| {
-                icon.set_favicon(wv.favicon().as_ref());
-            });
-        }
-        // Caminho robusto: o JS rasteriza o ícone real (inclusive SVG) num
-        // canvas 64px e posta o PNG aqui via message handler.
-        {
-            let icon = icon.clone();
-            ucm.connect_script_message_received(Some("faviconReady"), move |_, value| {
-                let data_url = value.to_str();
-                if let Some(texture) = png_data_url_to_texture(&data_url) {
-                    icon.set_favicon(Some(&texture));
-                }
-            });
-        }
-        // Não lidas: o JS observa o título/DOM e posta a contagem.
-        {
-            let icon = icon.clone();
-            ucm.connect_script_message_received(Some("unreadCount"), move |_, value| {
-                let n = value.to_int32().max(0) as u32;
-                icon.set_badge(n);
-            });
-        }
+        let root: gtk::Widget = area.upcast();
 
-        // Recuperação: se o processo web morrer (crash/estouro de memória), a
-        // página fica em branco. Recarregamos UMA vez, mas com limite de tempo
-        // para não entrar em loop de crash (recarregar direto o que crasha).
-        let last_reload: Rc<Cell<Option<std::time::Instant>>> = Rc::new(Cell::new(None));
-        webview.connect_web_process_terminated(move |wv, reason| {
-            eprintln!(
-                "syltr[webproc] terminado: {reason:?} — {}",
-                wv.uri().unwrap_or_default()
-            );
-            let now = std::time::Instant::now();
-            let looping = last_reload
-                .get()
-                .is_some_and(|t| now.duration_since(t).as_secs() < 20);
-            if !looping {
-                last_reload.set(Some(now));
-                wv.reload();
-            }
-        });
-
-        // Ao terminar de carregar, injeta os scripts de favicon e não lidas.
-        webview.connect_load_changed(|wv, event| {
-            if event == webkit6::LoadEvent::Finished {
-                run_js(wv, FAVICON_JS);
-                run_js(wv, UNREAD_JS);
-            }
-        });
-
-        webview.load_uri(url);
-
-        let root: gtk::Widget = webview.clone().upcast();
         Self {
             root,
-            webview,
+            slot,
             icon,
-            muted,
+            muted: Rc::new(Cell::new(muted)),
             home: url.to_string(),
         }
     }
 
-    /// Silencia/dessilencia as notificações do serviço.
-    pub fn set_muted(&self, muted: bool) {
-        self.muted.set(muted);
-    }
-
-    /// Atualiza os idiomas da verificação ortográfica (lista vazia desliga).
-    pub fn set_spell_languages(&self, langs: &[String]) {
-        apply_spell(&self.webview, langs);
-    }
-
-    /// Liga/desliga captura de mídia/WebRTC e recarrega para aplicar.
-    pub fn set_media_enabled(&self, enabled: bool) {
-        if let Some(settings) = webkit6::prelude::WebViewExt::settings(&self.webview) {
-            settings.set_enable_media_stream(enabled);
-            settings.set_enable_webrtc(enabled);
-        }
-        self.webview.reload();
-    }
-
-    /// Widget a ser inserido no `gtk::Stack` da janela.
     pub fn widget(&self) -> &gtk::Widget {
         &self.root
     }
 
-    /// Widget do ícone do serviço para o rail lateral (favicon ou inicial).
     pub fn icon(&self) -> &gtk::Widget {
         self.icon.widget()
     }
 
     pub fn reload(&self) {
-        self.webview.reload();
+        if let Some(browser) = self.slot.browser() {
+            browser.reload();
+        }
     }
 
-    /// Volta para a URL inicial do serviço.
     pub fn go_home(&self) {
-        self.webview.load_uri(&self.home);
+        if let Some(frame) = self.slot.browser().and_then(|b| b.main_frame()) {
+            frame.load_url(Some(&CefString::from(self.home.as_str())));
+        }
     }
-}
 
-/// Converte um data URL "data:image/png;base64,…" em textura.
-fn png_data_url_to_texture(data_url: &str) -> Option<gdk::Texture> {
-    let b64 = data_url.strip_prefix("data:image/png;base64,")?;
-    let bytes = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
-    gdk::Texture::from_bytes(&gtk::glib::Bytes::from(&bytes)).ok()
+    pub fn set_muted(&self, muted: bool) {
+        self.muted.set(muted);
+    }
+
+    /// (Fase D) verificação ortográfica — CEF tem spellcheck próprio.
+    pub fn set_spell_languages(&self, _langs: &[String]) {}
+
+    /// (Fase D) mídia/chamadas — no Chromium funcionam nativamente.
+    pub fn set_media_enabled(&self, _enabled: bool) {}
 }

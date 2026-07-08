@@ -158,6 +158,7 @@ pub fn build(app: &adw::Application) {
     }
 
     ui.refresh_sidebar();
+    engine::start_pump();
     window.present();
 }
 
