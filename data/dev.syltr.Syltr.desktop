@@ -9,5 +9,5 @@ Icon=dev.syltr.Syltr
 Terminal=false
 Type=Application
 Categories=Network;InstantMessaging;GTK;
-Keywords=messaging;chat;whatsapp;telegram;slack;discord;franz;
+Keywords=messaging;chat;whatsapp;telegram;slack;discord;
 StartupNotify=true

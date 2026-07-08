@@ -4,7 +4,7 @@
 //!
 //! Each service has its own session folder under
 //! `$XDG_DATA_HOME/dev.syltr.Syltr/sessions/<id>/` (isolated cookies/storage,
-//! like the separate "accounts" in Franz).
+//! one independent account per service).
 
 mod service;
 mod settings;

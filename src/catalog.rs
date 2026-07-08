@@ -1,4 +1,4 @@
-//! Catalog of known services ("recipes", in Franz's terminology).
+//! Catalog of known services ("recipes").
 //!
 //! It is just a static table used by the "Add service" dialog. Any custom URL
 //! is accepted too — the catalog only provides shortcuts.

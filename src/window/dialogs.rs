@@ -161,7 +161,7 @@ pub(super) fn show_about(parent: &impl IsA<gtk::Widget>) {
         .application_icon(crate::APP_ID)
         .developer_name("Lucas Borges")
         .version(env!("CARGO_PKG_VERSION"))
-        .comments(gettext("Franz-style messaging aggregator for GNOME."))
+        .comments(gettext("All-in-one messaging aggregator for GNOME."))
         .website("https://github.com/")
         .license_type(gtk::License::Gpl30)
         .build();

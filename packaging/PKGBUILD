@@ -1,6 +1,6 @@
 # Maintainer: Lucas Borges <lucas.borges@vilt-group.com>
 #
-# Syltr — agregador de serviços de mensagens (estilo Franz) com engine
+# Syltr — agregador de serviços de mensagens com engine
 # Chromium (CEF) + GTK4/libadwaita.
 #
 # O CEF é baixado FRESCO a cada build (última versão compatível): o build()
@@ -14,7 +14,7 @@
 pkgname=syltr
 pkgver=0.1.0
 pkgrel=4
-pkgdesc="Agregador de serviços de mensagens (estilo Franz) — Chromium/CEF + GTK4"
+pkgdesc="Agregador de serviços de mensagens — Chromium/CEF + GTK4"
 arch=('x86_64')
 url="https://github.com/lucasborges/syltr"
 license=('GPL-3.0-or-later')

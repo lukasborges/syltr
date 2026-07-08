@@ -11,7 +11,7 @@ use crate::engine;
 impl Ui {
     /// Ensures a service's web view exists (loading in the background) and
     /// returns a clone. Called upfront for every service so favicons load and
-    /// notifications arrive, like in Franz.
+    /// notifications arrive from the start.
     pub(super) fn ensure_view(&self, svc: &Service) -> engine::ServiceView {
         if let Some(view) = self.state.borrow().views.get(&svc.id) {
             return view.clone();

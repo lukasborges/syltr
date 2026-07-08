@@ -1,6 +1,6 @@
 # Syltr
 
-A **Franz**-style messaging service aggregator, native to **GNOME**. It gathers
+An all-in-one messaging service aggregator, native to **GNOME**. It gathers
 WhatsApp Web, Telegram, Slack, Discord, Messenger and any other web service into
 a single window — each with its own **isolated session** (separate cookies and
 storage).

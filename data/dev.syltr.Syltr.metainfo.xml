@@ -18,8 +18,8 @@
   <description>
     <p>
       Syltr reúne vários serviços web de mensagens (WhatsApp Web, Telegram,
-      Slack, Discord, Messenger e outros) numa única janela, no estilo do
-      Franz — cada serviço com sua própria sessão isolada.
+      Slack, Discord, Messenger e outros) numa única janela — cada serviço
+      com sua própria sessão isolada.
     </p>
     <p>Construído nativamente para o GNOME com GTK4, libadwaita e WebKitGTK.</p>
   </description>

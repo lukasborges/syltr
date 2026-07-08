@@ -86,5 +86,5 @@ msgstr "Adicionar"
 msgid "Service"
 msgstr "Serviço"
 
-msgid "Franz-style messaging aggregator for GNOME."
-msgstr "Agregador de serviços de mensagens estilo Franz para o GNOME."
+msgid "All-in-one messaging aggregator for GNOME."
+msgstr "Agregador de serviços de mensagens para o GNOME."

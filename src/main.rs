@@ -1,4 +1,4 @@
-//! Syltr — a Franz-style messaging service aggregator for GNOME.
+//! Syltr — an all-in-one messaging service aggregator for GNOME.
 //!
 //! Stack: GTK4 + libadwaita + CEF (Chromium), in Rust. The web engine is
 //! isolated in `engine.rs`, rendered offscreen (OSR) into GTK drawing areas.

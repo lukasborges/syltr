@@ -2,7 +2,7 @@
 name = "syltr"
 version = "0.1.0"
 edition = "2021"
-description = "Agregador de serviços de mensagens (estilo Franz) para o GNOME"
+description = "Agregador de serviços de mensagens para o GNOME"
 license = "GPL-3.0-or-later"
 
 [[bin]]

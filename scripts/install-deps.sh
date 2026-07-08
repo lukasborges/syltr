@@ -2,7 +2,7 @@
 #
 # Syltr — instalador de dependências de desenvolvimento (Arch Linux)
 # =================================================================
-# App estilo Franz: agregador de serviços de mensagens em GTK4 + libadwaita
+# Agregador de serviços de mensagens em GTK4 + libadwaita
 # + Rust, usando a engine do Chromium via CEF (Chromium Embedded Framework).
 #
 # Uso:
