@@ -9,64 +9,76 @@ pub struct Entry {
     pub key: &'static str,
     pub name: &'static str,
     pub url: &'static str,
+    /// Group shown in the "Add service" dialog.
+    pub category: &'static str,
 }
 
 pub const CATALOG: &[Entry] = &[
-    // Messaging
-    Entry { key: "whatsapp",  name: "WhatsApp Web",     url: "https://web.whatsapp.com/" },
-    Entry { key: "telegram",  name: "Telegram Web",     url: "https://web.telegram.org/" },
-    Entry { key: "messenger", name: "Messenger",        url: "https://www.messenger.com/" },
-    Entry { key: "slack",     name: "Slack",            url: "https://app.slack.com/client" },
-    Entry { key: "discord",   name: "Discord",          url: "https://discord.com/app" },
-    Entry { key: "element",   name: "Element (Matrix)", url: "https://app.element.io/" },
-    Entry { key: "skype",     name: "Skype",            url: "https://web.skype.com/" },
-    Entry { key: "gmessages", name: "Google Messages",  url: "https://messages.google.com/web/" },
-    Entry { key: "threema",   name: "Threema Web",      url: "https://web.threema.ch/" },
-    Entry { key: "groupme",   name: "GroupMe",          url: "https://web.groupme.com/" },
-    // Social
-    Entry { key: "instagram", name: "Instagram",        url: "https://www.instagram.com/direct/inbox/" },
-    Entry { key: "linkedin",  name: "LinkedIn",         url: "https://www.linkedin.com/messaging/" },
-    Entry { key: "x",         name: "X",                url: "https://x.com/messages" },
-    Entry { key: "reddit",    name: "Reddit",           url: "https://www.reddit.com/" },
-    Entry { key: "twitch",    name: "Twitch",           url: "https://www.twitch.tv/" },
-    // Google
-    Entry { key: "gmail",     name: "Gmail",            url: "https://mail.google.com/" },
-    Entry { key: "gcalendar", name: "Google Calendar",  url: "https://calendar.google.com/" },
-    Entry { key: "gchat",     name: "Google Chat",      url: "https://chat.google.com/" },
-    Entry { key: "gmeet",     name: "Google Meet",      url: "https://meet.google.com/" },
-    Entry { key: "gdrive",    name: "Google Drive",     url: "https://drive.google.com/" },
-    Entry { key: "gdocs",     name: "Google Docs",      url: "https://docs.google.com/" },
-    Entry { key: "gvoice",    name: "Google Voice",     url: "https://voice.google.com/" },
-    Entry { key: "gphotos",   name: "Google Photos",    url: "https://photos.google.com/" },
-    // Microsoft
-    Entry { key: "teams",     name: "Microsoft Teams",  url: "https://teams.microsoft.com/" },
-    Entry { key: "outlook",   name: "Outlook",          url: "https://outlook.live.com/mail/" },
-    Entry { key: "onedrive",  name: "OneDrive",         url: "https://onedrive.live.com/" },
-    Entry { key: "mstodo",    name: "Microsoft To Do",  url: "https://to-do.office.com/" },
-    // Email
-    Entry { key: "proton",    name: "Proton Mail",      url: "https://mail.proton.me/" },
-    Entry { key: "tuta",      name: "Tuta (Tutanota)",  url: "https://app.tuta.com/" },
-    Entry { key: "fastmail",  name: "Fastmail",         url: "https://app.fastmail.com/" },
-    Entry { key: "zohomail",  name: "Zoho Mail",        url: "https://mail.zoho.com/" },
-    Entry { key: "yahoomail", name: "Yahoo Mail",       url: "https://mail.yahoo.com/" },
-    Entry { key: "icloud",    name: "iCloud Mail",      url: "https://www.icloud.com/mail" },
-    // Productivity
-    Entry { key: "notion",    name: "Notion",           url: "https://www.notion.so/" },
-    Entry { key: "trello",    name: "Trello",           url: "https://trello.com/" },
-    Entry { key: "todoist",   name: "Todoist",          url: "https://app.todoist.com/" },
-    Entry { key: "asana",     name: "Asana",            url: "https://app.asana.com/" },
-    Entry { key: "clickup",   name: "ClickUp",          url: "https://app.clickup.com/" },
-    Entry { key: "linear",    name: "Linear",           url: "https://linear.app/" },
-    // AI
-    Entry { key: "chatgpt",    name: "ChatGPT",           url: "https://chatgpt.com/" },
-    Entry { key: "claude",     name: "Claude",            url: "https://claude.ai/" },
-    Entry { key: "gemini",     name: "Gemini",            url: "https://gemini.google.com/" },
-    Entry { key: "copilot",    name: "Microsoft Copilot", url: "https://copilot.microsoft.com/" },
-    Entry { key: "deepseek",   name: "DeepSeek",          url: "https://chat.deepseek.com/" },
-    Entry { key: "perplexity", name: "Perplexity",        url: "https://www.perplexity.ai/" },
-    Entry { key: "grok",       name: "Grok",              url: "https://grok.com/" },
-    Entry { key: "mistral",    name: "Le Chat (Mistral)", url: "https://chat.mistral.ai/" },
+    entry("whatsapp",  "WhatsApp Web",     "https://web.whatsapp.com/",            "Messaging"),
+    entry("telegram",  "Telegram Web",     "https://web.telegram.org/",            "Messaging"),
+    entry("messenger", "Messenger",        "https://www.messenger.com/",           "Messaging"),
+    entry("slack",     "Slack",            "https://app.slack.com/client",         "Messaging"),
+    entry("discord",   "Discord",          "https://discord.com/app",              "Messaging"),
+    entry("element",   "Element (Matrix)", "https://app.element.io/",              "Messaging"),
+    entry("skype",     "Skype",            "https://web.skype.com/",               "Messaging"),
+    entry("gmessages", "Google Messages",  "https://messages.google.com/web/",     "Messaging"),
+    entry("threema",   "Threema Web",      "https://web.threema.ch/",              "Messaging"),
+    entry("groupme",   "GroupMe",          "https://web.groupme.com/",             "Messaging"),
+
+    entry("instagram", "Instagram",        "https://www.instagram.com/direct/inbox/", "Social"),
+    entry("linkedin",  "LinkedIn",         "https://www.linkedin.com/messaging/",  "Social"),
+    entry("x",         "X",                "https://x.com/messages",               "Social"),
+    entry("reddit",    "Reddit",           "https://www.reddit.com/",              "Social"),
+    entry("twitch",    "Twitch",           "https://www.twitch.tv/",               "Social"),
+
+    entry("gmail",     "Gmail",            "https://mail.google.com/",             "Google"),
+    entry("gcalendar", "Google Calendar",  "https://calendar.google.com/",         "Google"),
+    entry("gchat",     "Google Chat",      "https://chat.google.com/",             "Google"),
+    entry("gmeet",     "Google Meet",      "https://meet.google.com/",             "Google"),
+    entry("gdrive",    "Google Drive",     "https://drive.google.com/",            "Google"),
+    entry("gdocs",     "Google Docs",      "https://docs.google.com/",             "Google"),
+    entry("gvoice",    "Google Voice",     "https://voice.google.com/",            "Google"),
+    entry("gphotos",   "Google Photos",    "https://photos.google.com/",           "Google"),
+
+    entry("teams",     "Microsoft Teams",  "https://teams.microsoft.com/",         "Microsoft"),
+    entry("outlook",   "Outlook",          "https://outlook.live.com/mail/",       "Microsoft"),
+    entry("onedrive",  "OneDrive",         "https://onedrive.live.com/",           "Microsoft"),
+    entry("mstodo",    "Microsoft To Do",  "https://to-do.office.com/",            "Microsoft"),
+
+    entry("proton",    "Proton Mail",      "https://mail.proton.me/",              "Email"),
+    entry("tuta",      "Tuta (Tutanota)",  "https://app.tuta.com/",                "Email"),
+    entry("fastmail",  "Fastmail",         "https://app.fastmail.com/",            "Email"),
+    entry("zohomail",  "Zoho Mail",        "https://mail.zoho.com/",               "Email"),
+    entry("yahoomail", "Yahoo Mail",       "https://mail.yahoo.com/",              "Email"),
+    entry("icloud",    "iCloud Mail",      "https://www.icloud.com/mail",          "Email"),
+
+    entry("notion",    "Notion",           "https://www.notion.so/",               "Productivity"),
+    entry("trello",    "Trello",           "https://trello.com/",                  "Productivity"),
+    entry("todoist",   "Todoist",          "https://app.todoist.com/",             "Productivity"),
+    entry("asana",     "Asana",            "https://app.asana.com/",               "Productivity"),
+    entry("clickup",   "ClickUp",          "https://app.clickup.com/",             "Productivity"),
+    entry("linear",    "Linear",           "https://linear.app/",                  "Productivity"),
+
+    entry("chatgpt",    "ChatGPT",           "https://chatgpt.com/",                "AI"),
+    entry("claude",     "Claude",            "https://claude.ai/",                  "AI"),
+    entry("gemini",     "Gemini",            "https://gemini.google.com/",          "AI"),
+    entry("copilot",    "Microsoft Copilot", "https://copilot.microsoft.com/",      "AI"),
+    entry("deepseek",   "DeepSeek",          "https://chat.deepseek.com/",          "AI"),
+    entry("perplexity", "Perplexity",        "https://www.perplexity.ai/",          "AI"),
+    entry("grok",       "Grok",              "https://grok.com/",                   "AI"),
+    entry("mistral",    "Le Chat (Mistral)", "https://chat.mistral.ai/",            "AI"),
 ];
+
+/// Categories in display order (first appearance in [`CATALOG`]).
+pub fn categories() -> Vec<&'static str> {
+    let mut ordered: Vec<&'static str> = Vec::new();
+    for entry in CATALOG {
+        if !ordered.contains(&entry.category) {
+            ordered.push(entry.category);
+        }
+    }
+    ordered
+}
 
 /// Services the app starts with on first run.
 pub const DEFAULT_KEYS: &[&str] = &[
@@ -82,4 +94,13 @@ pub const DEFAULT_KEYS: &[&str] = &[
 
 pub fn find(key: &str) -> Option<&'static Entry> {
     CATALOG.iter().find(|e| e.key == key)
+}
+
+const fn entry(
+    key: &'static str,
+    name: &'static str,
+    url: &'static str,
+    category: &'static str,
+) -> Entry {
+    Entry { key, name, url, category }
 }
