@@ -48,3 +48,6 @@ services.user.json
 # Rust
 /target
 Cargo.lock.bak
+
+# CEF spike build (libcef ~1.3GB)
+cef-spike/target/
