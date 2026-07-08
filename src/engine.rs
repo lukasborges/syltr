@@ -279,6 +279,7 @@ impl RenderHandlerBuilder {
 wrap_display_handler! {
     struct DisplayHandlerBuilder {
         state: Rc<RenderState>,
+        icon: ServiceIcon,
     }
 
     impl DisplayHandler {
@@ -292,12 +293,57 @@ wrap_display_handler! {
             self.state.area.set_cursor_from_name(Some(cursor_name(type_)));
             1
         }
+
+        fn on_title_change(&self, _browser: Option<&mut Browser>, title: Option<&CefString>) {
+            if let Some(title) = title {
+                self.icon.set_badge(unread_from_title(&title.to_string()));
+            }
+        }
     }
 }
 
 impl DisplayHandlerBuilder {
-    fn build(state: Rc<RenderState>) -> DisplayHandler {
-        Self::new(state)
+    fn build(state: Rc<RenderState>, icon: ServiceIcon) -> DisplayHandler {
+        Self::new(state, icon)
+    }
+}
+
+/// Extrai a contagem de não lidas do título (ex.: "(5) WhatsApp",
+/// "Inbox (12) - ...", "5 mensagens"). 0 se não achar.
+fn unread_from_title(title: &str) -> u32 {
+    let bytes = title.as_bytes();
+    for (i, &c) in bytes.iter().enumerate() {
+        if c == b'(' || c == b'[' || c == b'{' {
+            let mut n = 0u32;
+            let mut found = false;
+            for &d in &bytes[i + 1..] {
+                if d.is_ascii_digit() {
+                    n = n.saturating_mul(10).saturating_add((d - b'0') as u32);
+                    found = true;
+                } else {
+                    break;
+                }
+            }
+            if found {
+                return n;
+            }
+        }
+    }
+    // Número no início do título.
+    let mut n = 0u32;
+    let mut found = false;
+    for &d in bytes {
+        if d.is_ascii_digit() {
+            n = n.saturating_mul(10).saturating_add((d - b'0') as u32);
+            found = true;
+        } else {
+            break;
+        }
+    }
+    if found {
+        n
+    } else {
+        0
     }
 }
 
@@ -378,10 +424,10 @@ wrap_client! {
 }
 
 impl ClientBuilder {
-    fn build(state: Rc<RenderState>, slot: Rc<BrowserSlot>) -> Client {
+    fn build(state: Rc<RenderState>, slot: Rc<BrowserSlot>, icon: ServiceIcon) -> Client {
         Self::new(
             RenderHandlerBuilder::build(state.clone()),
-            DisplayHandlerBuilder::build(state),
+            DisplayHandlerBuilder::build(state, icon),
             LifeSpanHandlerBuilder::build(slot),
         )
     }
@@ -509,12 +555,13 @@ impl ServiceView {
             background_color: 0xFFFF_FFFF,
             ..Default::default()
         };
+        let icon = ServiceIcon::new(name);
         let slot = BrowserSlot::new();
         // Criação ASSÍNCRONA: o runtime Chrome cria o Profile por serviço de
         // forma assíncrona, então o browser chega em on_after_created (slot).
         browser_host_create_browser(
             Some(&window_info),
-            Some(&mut ClientBuilder::build(state.clone(), slot.clone())),
+            Some(&mut ClientBuilder::build(state.clone(), slot.clone(), icon.clone())),
             Some(&CefString::from(url)),
             Some(&browser_settings),
             None,
@@ -536,7 +583,6 @@ impl ServiceView {
 
         input::attach(&area, slot.clone());
 
-        let icon = ServiceIcon::new(name);
         let root: gtk::Widget = area.upcast();
 
         Self {
