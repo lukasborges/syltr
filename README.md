@@ -60,6 +60,18 @@ Useful environment variables:
 - `SYLTR_CEF_ARGS="..."` — extra Chromium switches, space-separated
 - `SYLTR_LOCALE_DIR` — override the translations directory
 
+### Tests
+
+```bash
+cargo test
+```
+
+Unit tests are colocated with the code they test: a module gains a `tests`
+submodule declared as `#[cfg(test)] mod tests;`, with the tests living in a
+sibling `tests.rs` inside the module folder (e.g. `src/engine/navigation/tests.rs`).
+This keeps them out of the release build and gives them access to the module's
+internal (`pub(crate)`/private) items.
+
 ## Architecture
 
 The app talks to the web engine **only** through the public `engine::ServiceView`
