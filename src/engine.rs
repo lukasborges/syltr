@@ -77,12 +77,13 @@ const UNREAD_JS: &str = r#"
 })();
 "#;
 
-/// Script injetado no início de cada página: faz o site enxergar a permissão
-/// de notificação como já concedida. Sem isso, serviços como o WhatsApp Web
-/// mostram "notificações desativadas" a cada abertura, porque o WebKit não
-/// persiste a permissão entre sessões. As notificações reais seguem
-/// funcionando pelo handler `show-notification`.
-const NOTIFY_PERMISSION_JS: &str = r#"
+/// Script injetado no início de cada página (compatibilidade):
+/// 1) faz o site enxergar a permissão de notificação como concedida (o WebKit
+///    não persiste a permissão, então o WhatsApp mostrava o banner sempre);
+/// 2) faz polyfill de requestIdleCallback/cancelIdleCallback, que o WebKitGTK
+///    não expõe e que serviços como o Microsoft Teams exigem (senão quebram
+///    com "Can't find variable: requestIdleCallback").
+const COMPAT_JS: &str = r#"
 (function () {
   try {
     Object.defineProperty(Notification, 'permission', {
@@ -93,6 +94,20 @@ const NOTIFY_PERMISSION_JS: &str = r#"
       if (typeof cb === 'function') cb('granted');
       return Promise.resolve('granted');
     };
+  } catch (e) {}
+  try {
+    if (typeof window.requestIdleCallback !== 'function') {
+      window.requestIdleCallback = function (cb) {
+        var start = Date.now();
+        return setTimeout(function () {
+          cb({
+            didTimeout: false,
+            timeRemaining: function () { return Math.max(0, 50 - (Date.now() - start)); },
+          });
+        }, 1);
+      };
+      window.cancelIdleCallback = function (id) { clearTimeout(id); };
+    }
   } catch (e) {}
 })();
 "#;
@@ -180,9 +195,9 @@ impl ServiceView {
         let ucm = webkit6::UserContentManager::new();
         ucm.register_script_message_handler("faviconReady", None);
         ucm.register_script_message_handler("unreadCount", None);
-        // Pré-concede a permissão de notificação (ver NOTIFY_PERMISSION_JS).
+        // Shims de compatibilidade no início da página (ver COMPAT_JS).
         ucm.add_script(&webkit6::UserScript::new(
-            NOTIFY_PERMISSION_JS,
+            COMPAT_JS,
             webkit6::UserContentInjectedFrames::AllFrames,
             webkit6::UserScriptInjectionTime::Start,
             &[],
