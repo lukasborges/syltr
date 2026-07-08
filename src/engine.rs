@@ -146,6 +146,31 @@ fn apply_spell(webview: &webkit6::WebView, langs: &[String]) {
     }
 }
 
+/// Captura de erros de JS (ativada por SYLTR_DEBUG): encaminha console.error/
+/// warn, window.onerror e promessas rejeitadas para o handler `consoleCapture`.
+const CONSOLE_JS: &str = r#"
+(function () {
+  const post = (kind, msg) => {
+    try { window.webkit.messageHandlers.consoleCapture.postMessage(kind + ': ' + msg); } catch (e) {}
+  };
+  const fmt = (args) => Array.from(args).map((a) => {
+    try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch (e) { return String(a); }
+  }).join(' ');
+  ['error', 'warn'].forEach((name) => {
+    const orig = console[name];
+    console[name] = function () { post(name, fmt(arguments)); return orig.apply(console, arguments); };
+  });
+  window.addEventListener('error', (e) =>
+    post('onerror', (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || '')));
+  window.addEventListener('unhandledrejection', (e) =>
+    post('unhandledrejection', String((e.reason && (e.reason.stack || e.reason.message)) || e.reason)));
+})();
+"#;
+
+fn debug_enabled() -> bool {
+    std::env::var_os("SYLTR_DEBUG").is_some()
+}
+
 /// Executa um script na webview (fire-and-forget).
 fn run_js(webview: &webkit6::WebView, script: &str) {
     webview.evaluate_javascript(
@@ -211,6 +236,11 @@ impl ServiceView {
         settings.set_enable_developer_extras(true);
         settings.set_enable_smooth_scrolling(true);
         settings.set_media_playback_requires_user_gesture(false);
+        // Renderização por software: o processo web do WebKit crasha ao
+        // renderizar o Teams com aceleração de HW (bug de GPU/compositing).
+        settings.set_hardware_acceleration_policy(
+            webkit6::HardwareAccelerationPolicy::Never,
+        );
         // Alguns serviços checam a UA; a padrão do WebKit já funciona na maioria.
         enable_runtime_features(&settings);
 
@@ -226,6 +256,21 @@ impl ServiceView {
             &[],
             &[],
         ));
+        // Captura de erros JS para o log (SYLTR_DEBUG=1).
+        if debug_enabled() {
+            ucm.register_script_message_handler("consoleCapture", None);
+            ucm.add_script(&webkit6::UserScript::new(
+                CONSOLE_JS,
+                webkit6::UserContentInjectedFrames::AllFrames,
+                webkit6::UserScriptInjectionTime::Start,
+                &[],
+                &[],
+            ));
+            let tag = name.to_string();
+            ucm.connect_script_message_received(Some("consoleCapture"), move |_, value| {
+                eprintln!("syltr[{tag}] {}", value.to_str());
+            });
+        }
 
         let webview = webkit6::WebView::builder()
             .network_session(&session)
@@ -315,6 +360,25 @@ impl ServiceView {
                 icon.set_badge(n);
             });
         }
+
+        // Recuperação: se o processo web morrer (crash/estouro de memória), a
+        // página fica em branco. Recarregamos UMA vez, mas com limite de tempo
+        // para não entrar em loop de crash (recarregar direto o que crasha).
+        let last_reload: Rc<Cell<Option<std::time::Instant>>> = Rc::new(Cell::new(None));
+        webview.connect_web_process_terminated(move |wv, reason| {
+            eprintln!(
+                "syltr[webproc] terminado: {reason:?} — {}",
+                wv.uri().unwrap_or_default()
+            );
+            let now = std::time::Instant::now();
+            let looping = last_reload
+                .get()
+                .is_some_and(|t| now.duration_since(t).as_secs() < 20);
+            if !looping {
+                last_reload.set(Some(now));
+                wv.reload();
+            }
+        });
 
         // Ao terminar de carregar, injeta os scripts de favicon e não lidas.
         webview.connect_load_changed(|wv, event| {
