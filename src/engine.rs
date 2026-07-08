@@ -104,6 +104,8 @@ wrap_app! {
             let Some(cmd) = command_line else { return };
             cmd.append_switch(Some(&"no-sandbox".into()));
             cmd.append_switch(Some(&"enable-logging=stderr".into()));
+            // Conecta o clipboard do Chromium ao do sistema no OSR (Linux).
+            cmd.append_switch_with_value(Some(&"ozone-platform".into()), Some(&"x11".into()));
         }
 
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
