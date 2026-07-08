@@ -12,7 +12,8 @@ use std::rc::Rc;
 use cef::{
     args::Args, rc::Rc as _, App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings,
     Client, CommandLine, CursorInfo, CursorType, DisplayHandler, DownloadImageCallback,
-    ImplBinaryValue, ImplBrowser, ImplBrowserHost, ImplFrame, ImplImage, LifeSpanHandler,
+    ImplBinaryValue, ImplBrowser, ImplBrowserHost, ImplFrame, ImplImage,
+    ImplPermissionPromptCallback, LifeSpanHandler, PermissionHandler, PermissionRequestResult,
     RenderHandler, RequestContextHandler, RequestContextSettings, Settings, WindowInfo, *,
 };
 use gtk::prelude::*;
@@ -463,6 +464,7 @@ wrap_client! {
         render_handler: RenderHandler,
         display_handler: DisplayHandler,
         life_span_handler: LifeSpanHandler,
+        permission_handler: PermissionHandler,
     }
 
     impl Client {
@@ -475,6 +477,9 @@ wrap_client! {
         fn life_span_handler(&self) -> Option<LifeSpanHandler> {
             Some(self.life_span_handler.clone())
         }
+        fn permission_handler(&self) -> Option<PermissionHandler> {
+            Some(self.permission_handler.clone())
+        }
     }
 }
 
@@ -484,7 +489,40 @@ impl ClientBuilder {
             RenderHandlerBuilder::build(state.clone()),
             DisplayHandlerBuilder::build(state, icon),
             LifeSpanHandlerBuilder::build(slot),
+            PermissionHandlerBuilder::build(SyltrPermissionHandler {}),
         )
+    }
+}
+
+#[derive(Clone)]
+struct SyltrPermissionHandler {}
+
+wrap_permission_handler! {
+    struct PermissionHandlerBuilder {
+        handler: SyltrPermissionHandler,
+    }
+
+    impl PermissionHandler {
+        fn on_show_permission_prompt(
+            &self,
+            _browser: Option<&mut Browser>,
+            _prompt_id: u64,
+            _requesting_origin: Option<&CefString>,
+            _requested_permissions: u32,
+            callback: Option<&mut PermissionPromptCallback>,
+        ) -> ::std::os::raw::c_int {
+            // Cliente dedicado: concede as permissões (ex.: notificações).
+            if let Some(cb) = callback {
+                cb.cont(PermissionRequestResult::ACCEPT);
+            }
+            1
+        }
+    }
+}
+
+impl PermissionHandlerBuilder {
+    fn build(handler: SyltrPermissionHandler) -> PermissionHandler {
+        Self::new(handler)
     }
 }
 
