@@ -1,74 +1,93 @@
 # Syltr
 
-Agregador de serviços de mensagens no estilo **Franz**, nativo para o **GNOME**.
-Reúne WhatsApp Web, Telegram, Slack, Discord, Messenger e qualquer outro serviço
-web numa única janela — cada um com sua **sessão isolada** (cookies e
-armazenamento próprios).
+A **Franz**-style messaging service aggregator, native to **GNOME**. It gathers
+WhatsApp Web, Telegram, Slack, Discord, Messenger and any other web service into
+a single window — each with its own **isolated session** (separate cookies and
+storage).
 
-**Stack:** GTK4 · libadwaita · WebKitGTK 6 · Rust
+**Stack:** GTK4 · libadwaita · CEF (Chromium, offscreen) · Rust
 
-## Funcionalidades
+## Features
 
-- Rail de ícones com favicons reais (rasteriza inclusive SVG) e realce do ativo
-- Adicionar serviços a partir de um catálogo ou por URL personalizada
-- **Reordenar** serviços arrastando · **menu de contexto** (botão direito)
-- **Badges de não lidas** no ícone (detecção por título/DOM)
-- **Notificações nativas** do desktop · **silenciar** por serviço · **não perturbe** global
-- Sessões isoladas por serviço (login independente em cada um)
-- Lista de serviços persistida em `~/.config/dev.syltr.Syltr/services.json`
+- Icon rail with real favicons (SVG included) and an active-item highlight
+- Add services from a catalog or by custom URL
+- **Reorder** services by dragging · **context menu** (right click)
+- **Unread badges** on the icon (detected from the page title)
+- **Native desktop notifications** · **mute** per service · global **do not disturb**
+- **Spell checking** with the system dictionaries · **camera/mic/calls** toggle
+- Isolated session per service (independent login for each)
+- Downloads saved straight to `~/Downloads` with a completion notification
+- Service list persisted in `~/.config/dev.syltr.Syltr/services.json`
 
-### Atalhos
+### Shortcuts
 
-| Atalho | Ação |
-|--------|------|
-| `Ctrl+1` … `Ctrl+9` | Ir para o serviço N |
-| `Ctrl+PgDown` / `Alt+↓` | Próximo serviço |
-| `Ctrl+PgUp` / `Alt+↑` | Serviço anterior |
-| `Ctrl+N` | Adicionar serviço |
-| `Ctrl+R` / `F5` | Recarregar |
-| `Ctrl+Q` | Sair |
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+1` … `Ctrl+9` | Go to service N |
+| `Ctrl+PgDown` / `Alt+↓` | Next service |
+| `Ctrl+PgUp` / `Alt+↑` | Previous service |
+| `Ctrl+N` | Add service |
+| `Ctrl+R` / `F5` | Reload |
+| `Ctrl+Q` | Quit |
 
-## Desenvolvimento
+## Development
 
-Instale as dependências (Arch Linux):
+Install the dependencies (Arch Linux):
 
 ```bash
-./scripts/install-deps.sh          # tudo, incl. GNOME Builder e CEF (opcional)
-./scripts/install-deps.sh --no-cef # sem a engine Chromium (dev com WebKitGTK)
-./scripts/install-deps.sh --no-ide # sem GNOME Builder
+./scripts/install-deps.sh          # toolchain, GTK4/libadwaita, spell check and CEF
+./scripts/install-deps.sh --no-ide # skip GNOME Builder
 ```
 
-Compile e rode:
+CEF is not in the official repos. The most reliable way to get it is the
+prebuilt binary (Spotify CEF builds); point the `cef` crate at it:
+
+```bash
+export CEF_PATH=/path/to/cef_binary_XXXX_linux64_minimal
+```
+
+Build and run:
 
 ```bash
 cargo run
 ```
 
-Ou abra a pasta no **GNOME Builder** (`gnome-builder .`).
+Useful environment variables:
 
-## Arquitetura
+- `CEF_PATH` — directory with the CEF resources (defaults to next to the binary)
+- `SYLTR_DEBUG=1` — enable remote DevTools at `http://localhost:9222`
+- `SYLTR_CEF_ARGS="..."` — extra Chromium switches, space-separated
+- `SYLTR_LOCALE_DIR` — override the translations directory
 
-| Arquivo          | Responsabilidade                                             |
-|------------------|-------------------------------------------------------------|
-| `src/main.rs`    | Inicializa a `AdwApplication`                                |
-| `src/window.rs`  | Janela, sidebar, stack de webviews, ações e diálogos        |
-| `src/engine.rs`  | **Camada da engine web** (isolada) — hoje WebKitGTK          |
-| `src/config.rs`  | Persistência dos serviços e caminho das sessões (XDG)        |
-| `src/catalog.rs` | Catálogo de serviços conhecidos ("recipes")                  |
+## Architecture
 
-### Engine web: WebKit hoje, Chromium depois
+The app talks to the web engine **only** through the public `engine::ServiceView`
+API and never touches CEF directly. Each module is split into a folder by
+responsibility:
 
-Todo o app usa **apenas** a API pública de `engine::ServiceView`
-(`new`, `widget`, `reload`, `go_home`) e nunca toca no `webkit6` diretamente.
-Para migrar para a **engine do Chromium**, basta reimplementar `ServiceView`
-em `src/engine.rs` com o crate [`cef`](https://crates.io/crates/cef)
-(Chromium Embedded Framework) renderizando *offscreen* dentro de um
-`gtk::Widget` — nenhum outro arquivo precisa mudar.
+| Path              | Responsibility                                              |
+|-------------------|------------------------------------------------------------|
+| `src/main.rs`     | Bootstrap CEF, then start the `AdwApplication` and CSS      |
+| `src/window/`     | Window, rail, view stack, actions, dialogs, context menu    |
+| `src/engine/`     | Web engine layer (CEF/OSR): bootstrap, render, handlers, `ServiceView` |
+| `src/input/`      | Forwarding GTK input to CEF (mouse, scroll, keyboard, focus, IME) |
+| `src/imgproxy/`   | Workaround for a CEF redirect bug on Google Chat images    |
+| `src/config/`     | Service list, settings and their XDG file locations         |
+| `src/spellcheck.rs` | Discovery of system spell-check dictionaries             |
+| `src/catalog.rs`  | Catalog of known services ("recipes")                       |
+| `src/icon.rs`     | The service icon (tile + favicon + unread badge)            |
 
-> No Wayland, o CEF exige *offscreen rendering* e a distribuição binária do CEF
-> (`CEF_PATH`, veja `scripts/install-deps.sh`). Por isso o desenvolvimento
-> começa com WebKitGTK, que é nativo e estável no GNOME.
+### Web engine (CEF / OSR)
 
-## Licença
+Each service is a **windowless CEF browser** rendering offscreen into a
+`GtkDrawingArea` via Cairo, with an isolated session/cache per service. The rest
+of the app depends only on `ServiceView` (`new`, `widget`, `icon`, `reload`,
+`go_home`, `set_notifications_enabled`, `set_spell_languages`), so the engine
+internals stay contained in `src/engine/`.
+
+> On Wayland/Linux, CEF requires offscreen rendering and its binary distribution
+> (`CEF_PATH`, see `scripts/install-deps.sh`).
+
+## License
 
 GPL-3.0-or-later
