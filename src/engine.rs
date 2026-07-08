@@ -241,6 +241,12 @@ impl ServiceView {
         settings.set_hardware_acceleration_policy(
             webkit6::HardwareAccelerationPolicy::Never,
         );
+        // Desliga captura de mídia/WebRTC: é o que faz o WebKit iniciar o
+        // monitor de dispositivos (GStreamer/PipeWire), que segfaulta neste
+        // sistema. Sem isso, o Teams crasha o processo web ao interagir.
+        // (Chat e reprodução de áudio/vídeo seguem funcionando.)
+        settings.set_enable_media_stream(false);
+        settings.set_enable_webrtc(false);
         // Alguns serviços checam a UA; a padrão do WebKit já funciona na maioria.
         enable_runtime_features(&settings);
 

@@ -53,6 +53,11 @@ const STYLE: &str = "
 ";
 
 fn main() -> glib::ExitCode {
+    // Evita SIGSEGV do processo web em sites pesados (ex.: Teams ao rolar):
+    // o renderizador DMABUF do WebKitGTK crasha em alguns drivers de GPU.
+    // Precisa ser definido antes de o WebKit iniciar os processos.
+    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
     init_i18n();
 
     // Inicializa GTK + libadwaita antes de qualquer widget.
