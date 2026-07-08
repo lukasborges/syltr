@@ -1,7 +1,9 @@
 [Desktop Entry]
 Name=Syltr
 GenericName=Messaging Aggregator
-Comment=Reúna WhatsApp, Telegram, Slack, Discord e outros num só app
+GenericName[pt_BR]=Agregador de Mensagens
+Comment=Bring WhatsApp, Telegram, Slack, Discord and more into one app
+Comment[pt_BR]=Reúna WhatsApp, Telegram, Slack, Discord e outros num só app
 Exec=syltr
 Icon=dev.syltr.Syltr
 Terminal=false

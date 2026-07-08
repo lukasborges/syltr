@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use adw::prelude::*;
+use gettextrs::gettext;
 use gtk::{gdk, gio, glib};
 
 use crate::config::{self, Service};
@@ -63,7 +64,7 @@ pub fn build(app: &adw::Application) {
         .build();
 
     let sidebar_page = adw::NavigationPage::builder()
-        .title("Serviços")
+        .title(gettext("Services"))
         .child(&sidebar_scroll)
         .build();
 
@@ -91,18 +92,18 @@ pub fn build(app: &adw::Application) {
     // ---- Header ÚNICO, cobrindo toda a largura da janela -----------------
     let menu_button = gtk::MenuButton::builder()
         .icon_name("open-menu-symbolic")
-        .tooltip_text("Menu principal")
+        .tooltip_text(gettext("Main menu"))
         .menu_model(&primary_menu())
         .primary(true)
         .build();
     let reload_button = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
-        .tooltip_text("Recarregar")
+        .tooltip_text(gettext("Reload"))
         .action_name("win.reload")
         .build();
     let home_button = gtk::Button::builder()
         .icon_name("go-home-symbolic")
-        .tooltip_text("Início do serviço")
+        .tooltip_text(gettext("Service home"))
         .action_name("win.home")
         .build();
 
@@ -318,14 +319,14 @@ impl Ui {
 
         let menu = gio::Menu::new();
         let s1 = gio::Menu::new();
-        s1.append(Some("Recarregar"), Some("win.reload"));
-        s1.append(Some("Início do serviço"), Some("win.home"));
+        s1.append(Some(&gettext("Reload")), Some("win.reload"));
+        s1.append(Some(&gettext("Service home")), Some("win.home"));
         menu.append_section(None, &s1);
         let s2 = gio::Menu::new();
-        s2.append(Some("Silenciar notificações"), Some("win.mute"));
+        s2.append(Some(&gettext("Mute notifications")), Some("win.mute"));
         menu.append_section(None, &s2);
         let s3 = gio::Menu::new();
-        s3.append(Some("Remover serviço"), Some("win.remove-service"));
+        s3.append(Some(&gettext("Remove service")), Some("win.remove-service"));
         menu.append_section(None, &s3);
 
         // Ancora na janela (estável), NÃO na linha: remover o serviço
@@ -359,20 +360,20 @@ impl Ui {
     /// Diálogo para escolher os idiomas da verificação ortográfica.
     fn show_spell_dialog(&self) {
         let dialog = adw::Dialog::builder()
-            .title("Idiomas da verificação")
+            .title(gettext("Spell-check languages"))
             .content_width(420)
             .build();
 
         let group = adw::PreferencesGroup::builder()
-            .title("Verificação ortográfica")
-            .description("Dicionários instalados no sistema")
+            .title(gettext("Spell checking"))
+            .description(gettext("Dictionaries installed on the system"))
             .build();
 
         let available = config::available_dictionaries();
         if available.is_empty() {
             let row = adw::ActionRow::builder()
-                .title("Nenhum dicionário instalado")
-                .subtitle("Instale, por exemplo: sudo pacman -S hunspell-en_us")
+                .title(gettext("No dictionaries installed"))
+                .subtitle(gettext("Install one, e.g.: sudo pacman -S hunspell-en_us"))
                 .build();
             group.add(&row);
         } else {
@@ -514,7 +515,7 @@ fn service_row(svc: &Service, icon: &gtk::Widget) -> gtk::ListBoxRow {
 /// Página mostrada quando não há nenhum serviço.
 fn empty_state() -> adw::StatusPage {
     let button = gtk::Button::builder()
-        .label("Adicionar serviço")
+        .label(gettext("Add service"))
         .halign(gtk::Align::Center)
         .action_name("win.add-service")
         .css_classes(["suggested-action", "pill"])
@@ -522,8 +523,8 @@ fn empty_state() -> adw::StatusPage {
 
     adw::StatusPage::builder()
         .icon_name("chat-symbolic")
-        .title("Nenhum serviço")
-        .description("Adicione um serviço de mensagens para começar.")
+        .title(gettext("No services"))
+        .description(gettext("Add a messaging service to get started."))
         .child(&button)
         .build()
 }
@@ -532,18 +533,18 @@ fn primary_menu() -> gio::Menu {
     let menu = gio::Menu::new();
 
     let section = gio::Menu::new();
-    section.append(Some("Adicionar serviço"), Some("win.add-service"));
-    section.append(Some("Remover serviço atual"), Some("win.remove-service"));
+    section.append(Some(&gettext("Add service")), Some("win.add-service"));
+    section.append(Some(&gettext("Remove current service")), Some("win.remove-service"));
     menu.append_section(None, &section);
 
     let dnd = gio::Menu::new();
-    dnd.append(Some("Não perturbe"), Some("win.toggle-dnd"));
-    dnd.append(Some("Idiomas da verificação…"), Some("win.spell-languages"));
+    dnd.append(Some(&gettext("Do not disturb")), Some("win.toggle-dnd"));
+    dnd.append(Some(&gettext("Spell-check languages…")), Some("win.spell-languages"));
     menu.append_section(None, &dnd);
 
     let about = gio::Menu::new();
-    about.append(Some("Sobre o Syltr"), Some("app.about"));
-    about.append(Some("Sair"), Some("app.quit"));
+    about.append(Some(&gettext("About Syltr")), Some("app.about"));
+    about.append(Some(&gettext("Quit")), Some("app.quit"));
     menu.append_section(None, &about);
 
     menu
@@ -662,13 +663,13 @@ fn wire_actions(app: &adw::Application, ui: &Ui) {
 /// Diálogo "Adicionar serviço": catálogo + URL personalizada.
 fn show_add_dialog(ui: &Ui) {
     let dialog = adw::Dialog::builder()
-        .title("Adicionar serviço")
+        .title(gettext("Add service"))
         .content_width(460)
         .content_height(600)
         .build();
 
     // Catálogo
-    let catalog_group = adw::PreferencesGroup::builder().title("Serviços").build();
+    let catalog_group = adw::PreferencesGroup::builder().title(gettext("Services")).build();
     for entry in catalog::CATALOG {
         let row = adw::ActionRow::builder()
             .title(entry.name)
@@ -691,17 +692,17 @@ fn show_add_dialog(ui: &Ui) {
 
     // Personalizado
     let custom_group = adw::PreferencesGroup::builder()
-        .title("Personalizado")
-        .description("Adicione qualquer serviço web pela URL.")
+        .title(gettext("Custom"))
+        .description(gettext("Add any web service by URL."))
         .build();
 
-    let name_row = adw::EntryRow::builder().title("Nome").build();
-    let url_row = adw::EntryRow::builder().title("URL (https://…)").build();
+    let name_row = adw::EntryRow::builder().title(gettext("Name")).build();
+    let url_row = adw::EntryRow::builder().title(gettext("URL (https://…)")).build();
     custom_group.add(&name_row);
     custom_group.add(&url_row);
 
     let add_custom = gtk::Button::builder()
-        .label("Adicionar")
+        .label(gettext("Add"))
         .halign(gtk::Align::End)
         .margin_top(12)
         .css_classes(["suggested-action"])
@@ -719,7 +720,7 @@ fn show_add_dialog(ui: &Ui) {
             }
             let mut name = name_row.text().to_string();
             if name.trim().is_empty() {
-                name = "Serviço".to_string();
+                name = gettext("Service");
             }
             ui.add_service(&name, &url);
             dialog.close();
@@ -759,7 +760,7 @@ fn show_about(parent: &impl IsA<gtk::Widget>) {
         .application_icon(crate::APP_ID)
         .developer_name("Lucas Borges")
         .version(env!("CARGO_PKG_VERSION"))
-        .comments("Agregador de serviços de mensagens estilo Franz para o GNOME.")
+        .comments(gettext("Franz-style messaging aggregator for GNOME."))
         .website("https://github.com/")
         .license_type(gtk::License::Gpl30)
         .build();

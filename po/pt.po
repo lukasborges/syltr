@@ -1,0 +1,84 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: syltr\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: pt\n"
+
+msgid "Main menu"
+msgstr "Menu principal"
+
+msgid "Reload"
+msgstr "Recarregar"
+
+msgid "Service home"
+msgstr "Início do serviço"
+
+msgid "Services"
+msgstr "Serviços"
+
+msgid "Add service"
+msgstr "Adicionar serviço"
+
+msgid "No services"
+msgstr "Nenhum serviço"
+
+msgid "Add a messaging service to get started."
+msgstr "Adicione um serviço de mensagens para começar."
+
+msgid "Remove current service"
+msgstr "Remover serviço atual"
+
+msgid "Do not disturb"
+msgstr "Não perturbe"
+
+msgid "Spell-check languages…"
+msgstr "Idiomas da verificação…"
+
+msgid "About Syltr"
+msgstr "Sobre o Syltr"
+
+msgid "Quit"
+msgstr "Sair"
+
+msgid "Mute notifications"
+msgstr "Silenciar notificações"
+
+msgid "Remove service"
+msgstr "Remover serviço"
+
+msgid "Spell-check languages"
+msgstr "Idiomas da verificação"
+
+msgid "Spell checking"
+msgstr "Verificação ortográfica"
+
+msgid "Dictionaries installed on the system"
+msgstr "Dicionários instalados no sistema"
+
+msgid "No dictionaries installed"
+msgstr "Nenhum dicionário instalado"
+
+msgid "Install one, e.g.: sudo pacman -S hunspell-en_us"
+msgstr "Instale um, ex.: sudo pacman -S hunspell-en_us"
+
+msgid "Custom"
+msgstr "Personalizado"
+
+msgid "Add any web service by URL."
+msgstr "Adicione qualquer serviço web pela URL."
+
+msgid "Name"
+msgstr "Nome"
+
+msgid "URL (https://…)"
+msgstr "URL (https://…)"
+
+msgid "Add"
+msgstr "Adicionar"
+
+msgid "Service"
+msgstr "Serviço"
+
+msgid "Franz-style messaging aggregator for GNOME."
+msgstr "Agregador de serviços de mensagens estilo Franz para o GNOME."

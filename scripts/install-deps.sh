@@ -60,6 +60,7 @@ PKGS_BASE=(
     pkgconf           # pkg-config, usado pelos crates -sys do GTK
     cmake ninja meson # sistemas de build (GNOME usa meson)
     clang lld         # linker rápido; alguns -sys pedem clang
+    gettext           # msgfmt + libintl (i18n da interface)
 )
 
 # Stack GNOME / GTK (headers + runtime; no Arch vêm no mesmo pacote)

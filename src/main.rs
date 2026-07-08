@@ -53,6 +53,8 @@ const STYLE: &str = "
 ";
 
 fn main() -> glib::ExitCode {
+    init_i18n();
+
     // Inicializa GTK + libadwaita antes de qualquer widget.
     let app = adw::Application::builder()
         .application_id(APP_ID)
@@ -62,6 +64,16 @@ fn main() -> glib::ExitCode {
     app.connect_activate(window::build);
 
     app.run()
+}
+
+/// Configura a tradução da interface conforme o idioma do sistema.
+/// As strings-fonte estão em inglês; traduções ficam em <data>/locale.
+fn init_i18n() {
+    gettextrs::setlocale(gettextrs::LocaleCategory::LcAll, "");
+    let locale_dir = gtk::glib::user_data_dir().join("locale");
+    let _ = gettextrs::bindtextdomain("syltr", locale_dir);
+    let _ = gettextrs::bind_textdomain_codeset("syltr", "UTF-8");
+    let _ = gettextrs::textdomain("syltr");
 }
 
 fn load_css() {
