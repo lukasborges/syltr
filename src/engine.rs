@@ -107,6 +107,13 @@ wrap_app! {
             cmd.append_switch(Some(&"enable-logging=stderr".into()));
             // Conecta o clipboard do Chromium ao do sistema no OSR (Linux).
             cmd.append_switch_with_value(Some(&"ozone-platform".into()), Some(&"x11".into()));
+            // DevTools remoto só em modo debug (SYLTR_DEBUG=1): http://localhost:9222
+            if std::env::var_os("SYLTR_DEBUG").is_some() {
+                cmd.append_switch_with_value(
+                    Some(&"remote-debugging-port".into()),
+                    Some(&"9222".into()),
+                );
+            }
         }
 
         fn browser_process_handler(&self) -> Option<BrowserProcessHandler> {
