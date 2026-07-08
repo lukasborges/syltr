@@ -334,7 +334,11 @@ wrap_download_image_callback! {
             image: Option<&mut cef::Image>,
         ) {
             let Some(image) = image else { return };
-            let Some(png) = image.as_png(1.0, 1, None, None) else { return };
+            let mut pw = 0;
+            let mut ph = 0;
+            let Some(png) = image.as_png(1.0, 1, Some(&mut pw), Some(&mut ph)) else {
+                return;
+            };
             let size = png.size();
             if size == 0 {
                 return;
