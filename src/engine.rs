@@ -115,6 +115,25 @@ const COMPAT_JS: &str = r#"
 })();
 "#;
 
+/// Habilita features de runtime do WebKit desativadas por padrão que alguns
+/// serviços exigem — em especial `requestIdleCallback` (usado pelo Teams).
+/// Ligar a flag nativa evita o polyfill (que não agenda de verdade como idle).
+fn enable_runtime_features(settings: &webkit6::Settings) {
+    let Some(list) = webkit6::Settings::all_features() else {
+        return;
+    };
+    for i in 0..list.length() {
+        let Some(feature) = list.get(i) else { continue };
+        let id = feature
+            .identifier()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        if id.to_lowercase().contains("idlecallback") {
+            settings.set_feature_enabled(&feature, true);
+        }
+    }
+}
+
 /// Aplica a verificação ortográfica no contexto da webview, nos idiomas dados
 /// (lista vazia desliga).
 fn apply_spell(webview: &webkit6::WebView, langs: &[String]) {
@@ -193,6 +212,7 @@ impl ServiceView {
         settings.set_enable_smooth_scrolling(true);
         settings.set_media_playback_requires_user_gesture(false);
         // Alguns serviços checam a UA; a padrão do WebKit já funciona na maioria.
+        enable_runtime_features(&settings);
 
         // Handlers que recebem do JS: favicon rasterizado (PNG) e não lidas.
         let ucm = webkit6::UserContentManager::new();
