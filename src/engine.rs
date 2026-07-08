@@ -504,6 +504,9 @@ impl ServiceView {
         };
         let browser_settings = BrowserSettings {
             windowless_frame_rate: 60,
+            // Fundo branco opaco (senão páginas sem fundo próprio ficam pretas
+            // no OSR). cef_color_t é ARGB: 0xFFFFFFFF = branco opaco.
+            background_color: 0xFFFF_FFFF,
             ..Default::default()
         };
         let slot = BrowserSlot::new();
