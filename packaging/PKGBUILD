@@ -51,10 +51,12 @@ package() {
   # Binário real (o wrapper em /usr/bin ajusta o ambiente e o executa).
   install -Dm755 "$srcdir/target/release/syltr" "$libdir/syltr"
 
-  # Distribuição do CEF baixada pelo build.
-  local cef
-  cef=$(find "$srcdir/target/release/build" -type d -name 'cef_linux_x86_64' | head -1)
-  [ -n "$cef" ] || { echo "CEF não encontrado no build"; return 1; }
+  # Distribuição do CEF: baixada pelo build (OUT_DIR) ou fornecida via CEF_PATH.
+  local cef="${CEF_PATH:-}"
+  if [ -z "$cef" ] || [ ! -f "$cef/libcef.so" ]; then
+    cef=$(find "$srcdir/target" -type d -name 'cef_linux_x86_64' | head -1)
+  fi
+  [ -n "$cef" ] && [ -f "$cef/libcef.so" ] || { echo "CEF não encontrado"; return 1; }
 
   install -m644 "$cef"/*.pak "$libdir/"
   install -m644 "$cef"/icudtl.dat "$libdir/"
