@@ -110,6 +110,23 @@ wrap_app! {
             cmd.append_switch(Some(&"enable-logging=stderr".into()));
             // Conecta o clipboard do Chromium ao do sistema no OSR (Linux).
             cmd.append_switch_with_value(Some(&"ozone-platform".into()), Some(&"x11".into()));
+            // Document-Isolation-Policy (recurso novo do Chromium): no CEF 149
+            // quebra imagens cross-origin servidas via Service Worker (emojis
+            // customizados e anexos do Google Chat falham com ERR_INVALID_ARGUMENT).
+            cmd.append_switch_with_value(
+                Some(&"disable-features".into()),
+                Some(&"DocumentIsolationPolicy".into()),
+            );
+            // Hook de debug: switches arbitrários do Chromium via env.
+            // SYLTR_CEF_ARGS="disable-quic log-net-log=/tmp/n.json foo=bar"
+            if let Some(s) = std::env::var("SYLTR_CEF_ARGS").ok().filter(|s| !s.is_empty()) {
+                for tok in s.split_whitespace() {
+                    match tok.split_once('=') {
+                        Some((k, v)) => cmd.append_switch_with_value(Some(&k.into()), Some(&v.into())),
+                        None => cmd.append_switch(Some(&tok.into())),
+                    }
+                }
+            }
             // DevTools remoto só em modo debug (SYLTR_DEBUG=1): http://localhost:9222
             if std::env::var_os("SYLTR_DEBUG").is_some() {
                 cmd.append_switch_with_value(
@@ -534,7 +551,9 @@ impl ClientBuilder {
             LifeSpanHandlerBuilder::build(slot, muted, spell_langs),
             PermissionHandlerBuilder::build(SyltrPermissionHandler {}),
             ContextMenuHandlerBuilder::build(state),
-            DownloadHandlerBuilder::build(SyltrDownloadHandler {}),
+            DownloadHandlerBuilder::build(SyltrDownloadHandler {
+                notified: Rc::new(RefCell::new(std::collections::HashSet::new())),
+            }),
         )
     }
 }
@@ -761,7 +780,10 @@ fn unique_path(dir: &Path, name: &str) -> std::path::PathBuf {
 }
 
 #[derive(Clone)]
-struct SyltrDownloadHandler {}
+struct SyltrDownloadHandler {
+    // IDs já notificados — on_download_updated dispara várias vezes.
+    notified: Rc<RefCell<std::collections::HashSet<u32>>>,
+}
 
 wrap_download_handler! {
     struct DownloadHandlerBuilder {
@@ -804,11 +826,25 @@ wrap_download_handler! {
             download_item: Option<&mut DownloadItem>,
             _callback: Option<&mut DownloadItemCallback>,
         ) {
-            if let Some(item) = download_item {
-                if item.is_complete() == 1 {
-                    let path = CefString::from(&item.full_path()).to_string();
-                    eprintln!("[syltr] download concluído: {path}");
-                }
+            let Some(item) = download_item else { return };
+            if item.is_complete() != 1 {
+                return;
+            }
+            // Só notifica uma vez por download.
+            if !self.handler.notified.borrow_mut().insert(item.id()) {
+                return;
+            }
+            let full = CefString::from(&item.full_path()).to_string();
+            let name = Path::new(&full)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&full)
+                .to_string();
+            eprintln!("[syltr] download concluído: {full}");
+            if let Some(app) = gtk::gio::Application::default() {
+                let notif = gtk::gio::Notification::new("Download concluído");
+                notif.set_body(Some(&name));
+                app.send_notification(Some(&format!("syltr-download-{}", item.id())), &notif);
             }
         }
     }
