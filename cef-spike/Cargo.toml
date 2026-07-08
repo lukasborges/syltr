@@ -1,8 +1,0 @@
-[package]
-name = "cef-spike"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-cef = "149.3.0"
-gtk = { version = "0.11.4", package = "gtk4", features = ["v4_12"] }
