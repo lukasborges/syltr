@@ -6,7 +6,11 @@ use gettextrs::gettext;
 use gtk::gio;
 
 use super::EMPTY_PAGE;
+use crate::catalog;
 use crate::config::Service;
+
+/// Icon size (px) used for the service logo in the Add dialog.
+const SERVICE_ICON_SIZE: i32 = 28;
 
 /// The icon-only side rail (no header of its own).
 pub(super) fn build_service_list() -> gtk::ListBox {
@@ -69,6 +73,19 @@ pub(super) fn dialog_toolbar(content: &impl IsA<gtk::Widget>) -> adw::ToolbarVie
     toolbar.add_top_bar(&adw::HeaderBar::new());
     toolbar.set_content(Some(content));
     toolbar
+}
+
+/// The catalog entry's bundled logo, or an initial-based Avatar as a fallback
+/// for services without a bundled icon.
+pub(super) fn service_icon(entry: &catalog::Entry) -> gtk::Widget {
+    let path = format!("/dev/syltr/Syltr/icons/{}.svg", entry.key);
+    if gio::resources_lookup_data(&path, gio::ResourceLookupFlags::NONE).is_ok() {
+        let image = gtk::Image::from_resource(&path);
+        image.set_pixel_size(SERVICE_ICON_SIZE);
+        image.upcast()
+    } else {
+        adw::Avatar::new(SERVICE_ICON_SIZE, Some(entry.name), true).upcast()
+    }
 }
 
 /// A flat, left-aligned button for the popover menus.

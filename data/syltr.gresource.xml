@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/dev/syltr/Syltr/icons">
+    <file>asana.svg</file>
+    <file>chatgpt.svg</file>
+    <file>claude.svg</file>
+    <file>clickup.svg</file>
+    <file>deepseek.svg</file>
+    <file>discord.svg</file>
+    <file>element.svg</file>
+    <file>fastmail.svg</file>
+    <file>gcalendar.svg</file>
+    <file>gchat.svg</file>
+    <file>gdocs.svg</file>
+    <file>gdrive.svg</file>
+    <file>gemini.svg</file>
+    <file>gmail.svg</file>
+    <file>gmeet.svg</file>
+    <file>gmessages.svg</file>
+    <file>grok.svg</file>
+    <file>groupme.svg</file>
+    <file>gvoice.svg</file>
+    <file>icloud.svg</file>
+    <file>instagram.svg</file>
+    <file>linear.svg</file>
+    <file>linkedin.svg</file>
+    <file>messenger.svg</file>
+    <file>mistral.svg</file>
+    <file>mstodo.svg</file>
+    <file>notion.svg</file>
+    <file>onedrive.svg</file>
+    <file>outlook.svg</file>
+    <file>perplexity.svg</file>
+    <file>proton.svg</file>
+    <file>reddit.svg</file>
+    <file>skype.svg</file>
+    <file>slack.svg</file>
+    <file>teams.svg</file>
+    <file>telegram.svg</file>
+    <file>threema.svg</file>
+    <file>todoist.svg</file>
+    <file>trello.svg</file>
+    <file>tuta.svg</file>
+    <file>twitch.svg</file>
+    <file>whatsapp.svg</file>
+    <file>x.svg</file>
+    <file>yahoomail.svg</file>
+    <file>zohomail.svg</file>
+  </gresource>
+</gresources>

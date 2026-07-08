@@ -3,7 +3,7 @@
 use adw::prelude::*;
 use gettextrs::gettext;
 
-use super::widgets::{dialog_toolbar, scrollable};
+use super::widgets::{dialog_toolbar, scrollable, service_icon};
 use super::Ui;
 use crate::{catalog, spellcheck};
 
@@ -127,7 +127,7 @@ fn catalog_groups(ui: &Ui, dialog: &adw::Dialog, search: &gtk::SearchEntry) -> g
                 .subtitle(entry.url)
                 .activatable(true)
                 .build();
-            row.add_prefix(&adw::Avatar::new(28, Some(entry.name), true));
+            row.add_prefix(&service_icon(entry));
             row.add_suffix(&gtk::Image::from_icon_name("list-add-symbolic"));
 
             let ui = ui.clone();

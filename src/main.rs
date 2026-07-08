@@ -65,6 +65,7 @@ fn main() -> glib::ExitCode {
     }
 
     init_i18n();
+    register_resources();
 
     let app = adw::Application::builder()
         .application_id(APP_ID)
@@ -89,6 +90,18 @@ fn init_i18n() {
     let _ = gettextrs::bindtextdomain("syltr", locale_dir);
     let _ = gettextrs::bind_textdomain_codeset("syltr", "UTF-8");
     let _ = gettextrs::textdomain("syltr");
+}
+
+/// Registers the embedded GResource that holds the bundled service icons.
+fn register_resources() {
+    let bytes = gtk::glib::Bytes::from_static(include_bytes!(concat!(
+        env!("OUT_DIR"),
+        "/syltr.gresource"
+    )));
+    match gtk::gio::Resource::from_data(&bytes) {
+        Ok(resource) => gtk::gio::resources_register(&resource),
+        Err(e) => eprintln!("syltr: failed to register icon resources: {e}"),
+    }
 }
 
 fn load_css() {
