@@ -43,12 +43,14 @@ const STYLE: &str = "
     border-radius: 0;
 }
 .rail row:hover {
-    background-color: alpha(@window_fg_color, 0.06);
+    background-color: alpha(@window_fg_color, 0.05);
 }
 .rail row:selected,
 .rail row:selected:hover {
     background-image: none;
-    background-color: alpha(@window_fg_color, 0.12);
+    /* realce bem sutil: o traço de acento é o indicador principal (senão o
+       fundo claro vaza pelas áreas transparentes do favicon e o lava). */
+    background-color: alpha(@window_fg_color, 0.04);
     box-shadow: inset 3px 0 0 @accent_bg_color;
 }
 ";
