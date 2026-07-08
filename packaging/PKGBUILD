@@ -13,7 +13,7 @@
 
 pkgname=syltr
 pkgver=0.1.0
-pkgrel=2
+pkgrel=3
 pkgdesc="Agregador de serviços de mensagens (estilo Franz) — Chromium/CEF + GTK4"
 arch=('x86_64')
 url="https://github.com/lucasborges/syltr"
