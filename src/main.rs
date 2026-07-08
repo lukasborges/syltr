@@ -1,7 +1,7 @@
-//! Syltr — agregador de serviços de mensagens (estilo Franz) para o GNOME.
+//! Syltr — a Franz-style messaging service aggregator for GNOME.
 //!
-//! Stack: GTK4 + libadwaita + WebKitGTK 6, em Rust. A engine web fica isolada
-//! em `engine.rs` (hoje WebKit, migração futura para Chromium/CEF).
+//! Stack: GTK4 + libadwaita + CEF (Chromium), in Rust. The web engine is
+//! isolated in `engine.rs`, rendered offscreen (OSR) into GTK drawing areas.
 
 mod catalog;
 mod config;
@@ -9,6 +9,7 @@ mod engine;
 mod icon;
 mod imgproxy;
 mod input;
+mod spellcheck;
 mod window;
 
 use adw::prelude::*;
@@ -22,7 +23,7 @@ const STYLE: &str = "
     font-size: 15px;
 }
 
-/* Badge de não lidas (canto superior direito do ícone). */
+/* Unread badge (top-right corner of the icon). */
 .unread-badge {
     background-color: #e01b24;
     color: #ffffff;
@@ -34,8 +35,8 @@ const STYLE: &str = "
     border-radius: 999px;
 }
 
-/* Item ativo: realce ocupando a largura toda do rail (sem cantos), com um
-   traço de acento colado na borda esquerda da janela (altura cheia). */
+/* Active item: a full-width highlight across the rail (no corners), with an
+   accent stroke flush against the window's left edge (full height). */
 .rail {
     padding: 0;
 }
@@ -49,22 +50,22 @@ const STYLE: &str = "
 .rail row:selected,
 .rail row:selected:hover {
     background-image: none;
-    /* realce bem sutil: o traço de acento é o indicador principal (senão o
-       fundo claro vaza pelas áreas transparentes do favicon e o lava). */
+    /* Very subtle highlight: the accent stroke is the primary indicator
+       (otherwise a light background bleeds through the favicon's transparent
+       areas and washes it out). */
     background-color: alpha(@window_fg_color, 0.04);
     box-shadow: inset 3px 0 0 @accent_bg_color;
 }
 ";
 
 fn main() -> glib::ExitCode {
-    // Bootstrap do CEF ANTES de GTK: no subprocesso, sai imediatamente.
+    // Bootstrap CEF BEFORE GTK: in a subprocess this exits immediately.
     if !engine::init_cef() {
         return glib::ExitCode::SUCCESS;
     }
 
     init_i18n();
 
-    // Inicializa GTK + libadwaita antes de qualquer widget.
     let app = adw::Application::builder()
         .application_id(APP_ID)
         .build();
@@ -77,11 +78,11 @@ fn main() -> glib::ExitCode {
     code
 }
 
-/// Configura a tradução da interface conforme o idioma do sistema.
-/// As strings-fonte estão em inglês; traduções ficam em <data>/locale.
+/// Sets up interface translation according to the system language.
+/// Source strings are in English; translations live in <data>/locale.
 fn init_i18n() {
     gettextrs::setlocale(gettextrs::LocaleCategory::LcAll, "");
-    // Pacote instala em /usr/share/locale; permite sobrepor via SYLTR_LOCALE_DIR.
+    // The package installs to /usr/share/locale; SYLTR_LOCALE_DIR overrides it.
     let locale_dir = std::env::var_os("SYLTR_LOCALE_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("/usr/share/locale"));

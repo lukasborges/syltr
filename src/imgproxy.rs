@@ -1,26 +1,27 @@
-//! Contorno de um bug do CEF 149: seguir um redirect cross-origin de um
-//! subrecurso `no-cors` (imagem) falha com `ERR_INVALID_ARGUMENT`. O Google
-//! Chat serve anexos e emojis customizados assim:
+//! Workaround for a CEF 149 bug: following a cross-origin redirect of a
+//! `no-cors` subresource (an image) fails with `ERR_INVALID_ARGUMENT`. Google
+//! Chat serves attachments and custom emoji exactly this way:
 //!
 //!   <img src="chat.google.com/api/get_attachment_url?..">  (same-origin)
 //!        -> 302 -> lh7-eu.googleusercontent.com/chat_attachment/..  (cross-origin)
 //!
-//! A imagem final carrega bem quando pedida direto; só o *seguir-redirect* no
-//! renderer quebra. Então interceptamos essas URLs e buscamos a imagem via
-//! `CefURLRequest` (network service, que segue o 302 sem o bug), devolvendo os
-//! bytes como uma resposta **same-origin 200** — o renderer nunca vê o redirect.
+//! The final image loads fine when requested directly; only *following the
+//! redirect* in the renderer breaks. So we intercept these URLs and fetch the
+//! image via `CefURLRequest` (the network service, which follows the 302 without
+//! the bug), returning the bytes as a **same-origin 200** response — the
+//! renderer never sees the redirect.
 //!
-//! Threads: o `ResourceHandler` roda na IO thread, mas `urlrequest_create` (com
-//! um `RequestContext`, para herdar cookies) só pode rodar na UI thread. Então
-//! `open()` posta uma task pra UI thread que cria o `URLRequest`; o estado é
-//! compartilhado via `Arc<Mutex<..>>` (os wrappers do cef são `Send`).
+//! Threads: the `ResourceHandler` runs on the IO thread, but `urlrequest_create`
+//! (with a `RequestContext`, to inherit cookies) can only run on the UI thread.
+//! So `open()` posts a task to the UI thread that creates the `URLRequest`; the
+//! state is shared via `Arc<Mutex<..>>` (the cef wrappers are `Send`).
 
 use std::sync::{Arc, Mutex};
 
 use cef::rc::Rc as _;
 use cef::*;
 
-/// URLs cujo carregamento por `<img>` dispara o bug do redirect no Chat.
+/// URLs whose `<img>` loading triggers the Chat redirect bug.
 fn should_intercept(url: &str) -> bool {
     url.contains("/api/get_attachment_url") || url.contains("/api/get_custom_emoji_image")
 }
@@ -37,10 +38,8 @@ struct FetchState {
 
 type SharedState = Arc<Mutex<FetchState>>;
 
-// ---------------------------------------------------------------------------
-// UrlrequestClient — acumula os bytes e, ao completar, libera o open().
-// (roda na UI thread, onde o URLRequest foi criado)
-// ---------------------------------------------------------------------------
+// UrlrequestClient — accumulates the bytes and, on completion, releases open().
+// (runs on the UI thread, where the URLRequest was created)
 
 wrap_urlrequest_client! {
     struct FetchClientBuilder {
@@ -93,9 +92,7 @@ impl FetchClientBuilder {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Task — cria o URLRequest na UI thread.
-// ---------------------------------------------------------------------------
+// Task — creates the URLRequest on the UI thread.
 
 wrap_task! {
     struct FetchTaskBuilder {
@@ -111,11 +108,11 @@ wrap_task! {
             };
             req.set_url(Some(&CefString::from(self.url.as_str())));
             req.set_method(Some(&CefString::from("GET")));
-            // UR_FLAG_ALLOW_STORED_CREDENTIALS (8): sem isto o CefURLRequest não
-            // envia cookies e o endpoint responde com a página de login.
+            // UR_FLAG_ALLOW_STORED_CREDENTIALS (8): without it the CefURLRequest
+            // does not send cookies and the endpoint responds with the login page.
             req.set_flags(8);
-            // O endpoint faz content-negotiation: sem Accept de imagem ele
-            // devolve HTML em vez de redirecionar pro arquivo.
+            // The endpoint does content negotiation: without an image Accept it
+            // returns HTML instead of redirecting to the file.
             let hdr = |req: &mut Request, k: &str, v: &str| {
                 req.set_header_by_name(
                     Some(&CefString::from(k)),
@@ -128,7 +125,7 @@ wrap_task! {
                 "Accept",
                 "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
             );
-            // Sem estes o endpoint devolve uma página HTML em vez do 302->imagem.
+            // Without these the endpoint returns an HTML page instead of the 302->image.
             hdr(&mut req, "Sec-Fetch-Dest", "image");
             hdr(&mut req, "Sec-Fetch-Mode", "no-cors");
             hdr(&mut req, "Sec-Fetch-Site", "same-origin");
@@ -153,10 +150,8 @@ impl FetchTaskBuilder {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ResourceHandler — busca a imagem via URLRequest e serve os bytes.
-// (open/read/response_headers rodam na IO thread)
-// ---------------------------------------------------------------------------
+// ResourceHandler — fetches the image via URLRequest and serves the bytes.
+// (open/read/response_headers run on the IO thread)
 
 wrap_resource_handler! {
     struct FetchHandlerBuilder {
@@ -174,21 +169,21 @@ wrap_resource_handler! {
             let Some(req_in) = request else {
                 return 0;
             };
-            // Busca exatamente a mesma URL (o token/parâmetros importam). Não há
-            // risco de loop: URLRequest do processo do browser não passa por este
+            // Fetch exactly the same URL (the token/parameters matter). There is
+            // no loop risk: a browser-process URLRequest does not go through this
             // RequestHandler.
             let fetch_url = CefString::from(&req_in.url()).to_string();
 
             if let Ok(mut st) = self.state.lock() {
                 st.open_cb = callback.map(|c| c.clone());
             }
-            // urlrequest_create só é válido na UI thread; posta pra lá.
+            // urlrequest_create is only valid on the UI thread; post it there.
             let mut task =
                 FetchTaskBuilder::build(self.state.clone(), self.ctx.clone(), fetch_url);
             post_task(ThreadId::UI, Some(&mut task));
 
-            // Assíncrono: handle_request=false, retorna true; o URLRequest
-            // chamará callback.cont()/cancel() quando terminar.
+            // Asynchronous: handle_request=false, return true; the URLRequest
+            // will call callback.cont()/cancel() when it finishes.
             if let Some(hr) = handle_request {
                 *hr = 0;
             }
@@ -257,9 +252,7 @@ impl FetchHandlerBuilder {
     }
 }
 
-// ---------------------------------------------------------------------------
 // ResourceRequestHandler
-// ---------------------------------------------------------------------------
 
 wrap_resource_request_handler! {
     struct ImgResourceRequestHandlerBuilder {
@@ -267,8 +260,8 @@ wrap_resource_request_handler! {
     }
 
     impl ResourceRequestHandler {
-        // O default desta trait é RV_CANCEL, que abortaria a requisição antes
-        // de chegar no resource_handler. Precisamos deixar continuar.
+        // This trait's default is RV_CANCEL, which would abort the request before
+        // it reaches resource_handler. We must let it continue.
         fn on_before_resource_load(
             &self,
             _browser: Option<&mut Browser>,
@@ -303,9 +296,7 @@ impl ImgResourceRequestHandlerBuilder {
     }
 }
 
-// ---------------------------------------------------------------------------
 // RequestHandler
-// ---------------------------------------------------------------------------
 
 wrap_request_handler! {
     pub struct ImgRequestHandlerBuilder {

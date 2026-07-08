@@ -1,5 +1,5 @@
-//! Janela principal — layout GNOME com AdwNavigationSplitView:
-//! sidebar de serviços à esquerda, stack de webviews à direita.
+//! Main window — GNOME layout with AdwNavigationSplitView: a service sidebar on
+//! the left, a stack of web views on the right.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -10,18 +10,21 @@ use gettextrs::gettext;
 use gtk::{gdk, gio, glib};
 
 use crate::config::{self, Service};
-use crate::{catalog, engine};
+use crate::{catalog, engine, spellcheck};
 
 const EMPTY_PAGE: &str = "__empty__";
 
-/// Estado mutável compartilhado entre os callbacks.
+/// Fixed width of the icon-only side rail.
+const RAIL_WIDTH: f64 = 84.0;
+
+/// Mutable state shared across the callbacks.
 struct State {
     services: Vec<Service>,
     views: HashMap<String, engine::ServiceView>,
     current: Option<String>,
 }
 
-/// Handle clonável para a janela e seus widgets principais.
+/// Cloneable handle to the window and its main widgets.
 #[derive(Clone)]
 struct Ui {
     window: adw::ApplicationWindow,
@@ -30,96 +33,51 @@ struct Ui {
     stack: gtk::Stack,
     title: adw::WindowTitle,
     app: adw::Application,
-    /// modo "não perturbe" global (suprime todas as notificações)
+    /// Global "do not disturb" mode (suppresses every notification).
     dnd: Rc<Cell<bool>>,
-    /// idiomas ativos da verificação ortográfica
+    /// Active spell-check languages.
     spell: Rc<RefCell<Vec<String>>>,
-    /// captura de mídia/WebRTC habilitada (câmera, mic, chamadas)
+    /// Media/WebRTC capture enabled (camera, mic, calls).
     media: Rc<Cell<bool>>,
     state: Rc<RefCell<State>>,
 }
 
-/// Ponto de entrada: constrói (ou reapresenta) a janela do app.
+/// Entry point: builds (or re-presents) the app window.
 pub fn build(app: &adw::Application) {
     if let Some(win) = app.active_window() {
         win.present();
         return;
     }
 
-    let services = config::load();
     let settings = config::load_settings();
     let state = Rc::new(RefCell::new(State {
-        services,
+        services: config::load(),
         views: HashMap::new(),
         current: None,
     }));
 
-    // ---- Rail lateral (só ícones), sem header próprio --------------------
-    let list = gtk::ListBox::builder()
-        .selection_mode(gtk::SelectionMode::Single)
-        .css_classes(["navigation-sidebar", "rail"])
-        .build();
-
-    let sidebar_scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&list)
-        .vexpand(true)
-        .build();
-
+    let list = build_service_list();
     let sidebar_page = adw::NavigationPage::builder()
         .title(gettext("Services"))
-        .child(&sidebar_scroll)
+        .child(&scrollable(&list))
         .build();
 
-    // ---- Conteúdo (stack de webviews), sem header próprio ----------------
-    let stack = gtk::Stack::builder()
-        .transition_type(gtk::StackTransitionType::Crossfade)
-        .vexpand(true)
-        .hexpand(true)
-        .build();
-    stack.add_named(&empty_state(), Some(EMPTY_PAGE));
-
+    let stack = build_content_stack();
     let content_page = adw::NavigationPage::builder()
         .title("Syltr")
         .child(&stack)
         .build();
 
-    // Rail estreito + conteúdo, LOGO ABAIXO do header único.
     let split = adw::NavigationSplitView::builder()
         .sidebar(&sidebar_page)
         .content(&content_page)
-        .min_sidebar_width(84.0)
-        .max_sidebar_width(84.0)
-        .build();
-
-    // ---- Header ÚNICO, cobrindo toda a largura da janela -----------------
-    let menu_button = gtk::MenuButton::builder()
-        .icon_name("open-menu-symbolic")
-        .tooltip_text(gettext("Main menu"))
-        .menu_model(&primary_menu())
-        .primary(true)
-        .build();
-    let reload_button = gtk::Button::builder()
-        .icon_name("view-refresh-symbolic")
-        .tooltip_text(gettext("Reload"))
-        .action_name("win.reload")
-        .build();
-    let home_button = gtk::Button::builder()
-        .icon_name("go-home-symbolic")
-        .tooltip_text(gettext("Service home"))
-        .action_name("win.home")
+        .min_sidebar_width(RAIL_WIDTH)
+        .max_sidebar_width(RAIL_WIDTH)
         .build();
 
     let title = adw::WindowTitle::new("Syltr", "");
-
-    let top_header = adw::HeaderBar::new();
-    top_header.pack_start(&menu_button);
-    top_header.pack_start(&reload_button);
-    top_header.pack_start(&home_button);
-    top_header.set_title_widget(Some(&title));
-
     let root_toolbar = adw::ToolbarView::new();
-    root_toolbar.add_top_bar(&top_header);
+    root_toolbar.add_top_bar(&build_primary_header(&title));
     root_toolbar.set_content(Some(&split));
 
     let window = adw::ApplicationWindow::builder()
@@ -147,15 +105,12 @@ pub fn build(app: &adw::Application) {
 
     wire_actions(app, &ui);
 
-    // Seleciona linha -> mostra serviço.
-    {
-        let ui = ui.clone();
-        list.connect_row_selected(move |_, row| {
-            if let Some(row) = row {
-                ui.show_service_at(row.index() as usize);
-            }
-        });
-    }
+    let ui_selected = ui.clone();
+    list.connect_row_selected(move |_, row| {
+        if let Some(row) = row {
+            ui_selected.show_service_at(row.index() as usize);
+        }
+    });
 
     ui.refresh_sidebar();
     engine::start_pump();
@@ -163,9 +118,9 @@ pub fn build(app: &adw::Application) {
 }
 
 impl Ui {
-    /// Garante que a webview de um serviço exista (carrega em segundo plano) e
-    /// devolve um clone dela. Chamado no início para todos os serviços, para
-    /// que os favicons carreguem e as notificações cheguem como no Franz.
+    /// Ensures a service's web view exists (loading in the background) and
+    /// returns a clone of it. Called upfront for every service so favicons load
+    /// and notifications arrive, like in Franz.
     fn ensure_view(&self, svc: &Service) -> engine::ServiceView {
         if let Some(view) = self.state.borrow().views.get(&svc.id) {
             return view.clone();
@@ -189,7 +144,7 @@ impl Ui {
         view
     }
 
-    /// Reconstrói o rail lateral a partir do estado atual.
+    /// Rebuilds the side rail from the current state.
     fn refresh_sidebar(&self) {
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
@@ -198,8 +153,9 @@ impl Ui {
         for (i, svc) in services.iter().enumerate() {
             let view = self.ensure_view(svc);
             let icon = view.icon();
-            // O ícone é reusado entre linhas; solta do pai anterior antes de
-            // reanexar, senão a linha nova fica vazia (bug ao reordenar).
+            // The icon is reused across rows; detach it from its previous parent
+            // before reattaching, otherwise the new row stays empty (a bug when
+            // reordering).
             if icon.parent().is_some() {
                 icon.unparent();
             }
@@ -212,7 +168,7 @@ impl Ui {
             self.title.set_title("Syltr");
             self.state.borrow_mut().current = None;
         } else {
-            // Mantém seleção válida (ou seleciona o primeiro).
+            // Keep a valid selection (or select the first).
             let idx = self
                 .state
                 .borrow()
@@ -230,9 +186,9 @@ impl Ui {
         }
     }
 
-    /// Anexa a uma célula do rail: arrastar-para-reordenar e menu de contexto.
+    /// Attaches drag-to-reorder and the context menu to a rail row.
     fn attach_row_controllers(&self, row: &gtk::ListBoxRow, index: usize) {
-        // Arrastar (fonte): carrega o índice de origem.
+        // Drag source: carries the source index.
         let drag = gtk::DragSource::new();
         drag.set_actions(gdk::DragAction::MOVE);
         let from = index as i32;
@@ -241,7 +197,7 @@ impl Ui {
         });
         row.add_controller(drag);
 
-        // Soltar (alvo): move o serviço de origem para esta posição.
+        // Drop target: moves the source service to this position.
         let drop = gtk::DropTarget::new(glib::Type::I32, gdk::DragAction::MOVE);
         let ui = self.clone();
         let to = index;
@@ -254,7 +210,7 @@ impl Ui {
         });
         row.add_controller(drop);
 
-        // Botão direito: menu de contexto do serviço.
+        // Right click: the service context menu.
         let click = gtk::GestureClick::new();
         click.set_button(gdk::BUTTON_SECONDARY);
         let ui = self.clone();
@@ -267,7 +223,7 @@ impl Ui {
         row.add_controller(click);
     }
 
-    /// Reordena o serviço `from` para a posição `to`, persiste e reconstrói.
+    /// Reorders service `from` to position `to`, persists and rebuilds.
     fn move_service(&self, from: usize, to: usize) {
         if from == to {
             return;
@@ -284,7 +240,7 @@ impl Ui {
         self.refresh_sidebar();
     }
 
-    /// Passo relativo na lista de serviços (para atalhos próximo/anterior).
+    /// Relative step through the service list (for next/previous shortcuts).
     fn step(&self, delta: i32) {
         let (len, cur) = {
             let st = self.state.borrow();
@@ -304,9 +260,9 @@ impl Ui {
         self.select_index(next as usize);
     }
 
-    /// Mostra o menu de contexto do serviço `index` ancorado em `row`.
+    /// Shows the context menu for service `index`, anchored to `row`.
     fn show_context_menu(&self, index: usize, row: &gtk::ListBoxRow, x: f64, y: f64) {
-        // Seleciona o serviço clicado (as ações operam sobre o atual).
+        // Select the clicked service (the actions operate on the current one).
         self.select_index(index);
 
         let muted = self
@@ -317,8 +273,8 @@ impl Ui {
             .map(|s| s.muted)
             .unwrap_or(false);
 
-        // Popover com botões (chamam os métodos direto — sem depender de
-        // resolução de GAction, que não funcionava no menu-model sobre o CEF).
+        // A popover with buttons that call the methods directly — we do not rely
+        // on GAction resolution, which did not work in a menu-model over CEF.
         let popover = gtk::Popover::new();
         popover.set_parent(&self.window);
         popover.set_has_arrow(false);
@@ -329,79 +285,61 @@ impl Ui {
             .unwrap_or((x, y));
         popover.set_pointing_to(Some(&gdk::Rectangle::new(wx as i32, wy as i32, 1, 1)));
 
-        let bx = gtk::Box::builder()
+        let menu = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
             .width_request(200)
             .build();
 
-        let item = |label: &str| {
-            let b = gtk::Button::with_label(label);
-            b.add_css_class("flat");
-            if let Some(lbl) = b.child().and_downcast::<gtk::Label>() {
-                lbl.set_xalign(0.0);
+        let reload = menu_item(&gettext("Reload"));
+        self.connect_menu_item(&reload, &popover, |ui| {
+            if let Some(v) = ui.current_view() {
+                v.reload();
             }
-            b
-        };
-
-        let reload = item(&gettext("Reload"));
-        {
-            let ui = self.clone();
-            let pop = popover.clone();
-            reload.connect_clicked(move |_| {
-                pop.popdown();
-                if let Some(v) = ui.current_view() {
-                    v.reload();
-                }
-            });
-        }
-        let home = item(&gettext("Service home"));
-        {
-            let ui = self.clone();
-            let pop = popover.clone();
-            home.connect_clicked(move |_| {
-                pop.popdown();
-                if let Some(v) = ui.current_view() {
-                    v.go_home();
-                }
-            });
-        }
+        });
+        let home = menu_item(&gettext("Service home"));
+        self.connect_menu_item(&home, &popover, |ui| {
+            if let Some(v) = ui.current_view() {
+                v.go_home();
+            }
+        });
         let mute_label = if muted {
             gettext("Unmute notifications")
         } else {
             gettext("Mute notifications")
         };
-        let mute = item(&mute_label);
-        {
-            let ui = self.clone();
-            let pop = popover.clone();
-            mute.connect_clicked(move |_| {
-                pop.popdown();
-                ui.set_current_muted(!muted);
-            });
-        }
-        let remove = item(&gettext("Remove service"));
-        {
-            let ui = self.clone();
-            let pop = popover.clone();
-            remove.connect_clicked(move |_| {
-                pop.popdown();
-                ui.remove_current();
-            });
-        }
+        let mute = menu_item(&mute_label);
+        self.connect_menu_item(&mute, &popover, move |ui| ui.set_current_muted(!muted));
+        let remove = menu_item(&gettext("Remove service"));
+        self.connect_menu_item(&remove, &popover, |ui| ui.remove_current());
 
-        bx.append(&reload);
-        bx.append(&home);
-        bx.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        bx.append(&mute);
-        bx.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        bx.append(&remove);
+        menu.append(&reload);
+        menu.append(&home);
+        menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        menu.append(&mute);
+        menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        menu.append(&remove);
 
-        popover.set_child(Some(&bx));
+        popover.set_child(Some(&menu));
         popover.connect_closed(|p| p.unparent());
         popover.popup();
     }
 
-    /// Persiste as configurações (ortografia + mídia) num só lugar.
+    /// Wires a context-menu button: closes the popover, then runs `action`.
+    fn connect_menu_item(
+        &self,
+        button: &gtk::Button,
+        popover: &gtk::Popover,
+        action: impl Fn(&Ui) + 'static,
+    ) {
+        let ui = self.clone();
+        let popover = popover.clone();
+        button.connect_clicked(move |_| {
+            popover.popdown();
+            action(&ui);
+        });
+    }
+
+    /// Persists the settings (spell-check + media) in one place.
     fn persist_settings(&self) {
         config::save_settings(&config::Settings {
             spell_languages: self.spell.borrow().clone(),
@@ -409,7 +347,7 @@ impl Ui {
         });
     }
 
-    /// Aplica os idiomas de ortografia atuais a todos os serviços e persiste.
+    /// Applies the current spell-check languages to every service and persists.
     fn apply_spell_languages(&self) {
         let langs = self.spell.borrow().clone();
         {
@@ -421,7 +359,7 @@ impl Ui {
         self.persist_settings();
     }
 
-    /// Liga/desliga captura de mídia/WebRTC em todos os serviços (persiste).
+    /// Toggles media/WebRTC capture on every service (and persists).
     fn set_media_enabled(&self, enabled: bool) {
         self.media.set(enabled);
         {
@@ -433,7 +371,7 @@ impl Ui {
         self.persist_settings();
     }
 
-    /// Diálogo para escolher os idiomas da verificação ortográfica.
+    /// Dialog to choose the spell-check languages.
     fn show_spell_dialog(&self) {
         let dialog = adw::Dialog::builder()
             .title(gettext("Spell-check languages"))
@@ -445,7 +383,7 @@ impl Ui {
             .description(gettext("Dictionaries installed on the system"))
             .build();
 
-        let available = config::available_dictionaries();
+        let available = spellcheck::available_dictionaries();
         if available.is_empty() {
             let row = adw::ActionRow::builder()
                 .title(gettext("No dictionaries installed"))
@@ -454,27 +392,7 @@ impl Ui {
             group.add(&row);
         } else {
             for lang in &available {
-                let active = self.spell.borrow().iter().any(|l| l == lang);
-                let row = adw::SwitchRow::builder()
-                    .title(lang)
-                    .active(active)
-                    .build();
-                let ui = self.clone();
-                let lang = lang.clone();
-                row.connect_active_notify(move |r| {
-                    {
-                        let mut sel = ui.spell.borrow_mut();
-                        if r.is_active() {
-                            if !sel.iter().any(|l| *l == lang) {
-                                sel.push(lang.clone());
-                            }
-                        } else {
-                            sel.retain(|l| *l != lang);
-                        }
-                    }
-                    ui.apply_spell_languages();
-                });
-                group.add(&row);
+                group.add(&self.spell_language_row(lang));
             }
         }
 
@@ -487,16 +405,33 @@ impl Ui {
             .build();
         content.append(&group);
 
-        let header = adw::HeaderBar::new();
-        let toolbar = adw::ToolbarView::new();
-        toolbar.add_top_bar(&header);
-        toolbar.set_content(Some(&content));
-
-        dialog.set_child(Some(&toolbar));
+        dialog.set_child(Some(&dialog_toolbar(&content)));
         dialog.present(Some(&self.window));
     }
 
-    /// Aplica silenciar/dessilenciar ao serviço atual (persiste).
+    /// A single toggle row for a spell-check language.
+    fn spell_language_row(&self, lang: &str) -> adw::SwitchRow {
+        let active = self.spell.borrow().iter().any(|l| l == lang);
+        let row = adw::SwitchRow::builder().title(lang).active(active).build();
+        let ui = self.clone();
+        let lang = lang.to_string();
+        row.connect_active_notify(move |r| {
+            {
+                let mut selected = ui.spell.borrow_mut();
+                if r.is_active() {
+                    if !selected.contains(&lang) {
+                        selected.push(lang.clone());
+                    }
+                } else {
+                    selected.retain(|l| *l != lang);
+                }
+            }
+            ui.apply_spell_languages();
+        });
+        row
+    }
+
+    /// Mutes/unmutes the current service (and persists).
     fn set_current_muted(&self, muted: bool) {
         let cur = self.state.borrow().current.clone();
         if let Some(id) = cur {
@@ -514,7 +449,7 @@ impl Ui {
         }
     }
 
-    /// Reaplica o estado de notificações a todos os serviços (após mudar DND).
+    /// Reapplies the notification state to every service (after DND changes).
     fn apply_all_notifications(&self) {
         let dnd = self.dnd.get();
         let st = self.state.borrow();
@@ -525,7 +460,7 @@ impl Ui {
         }
     }
 
-    /// Garante que a webview do serviço `idx` exista e a exibe.
+    /// Shows the web view for service `idx` (creating it if needed).
     fn show_service_at(&self, idx: usize) {
         let (id, name) = {
             let st = self.state.borrow();
@@ -583,8 +518,85 @@ impl Ui {
     }
 }
 
-/// Constrói uma célula do rail: só o ícone (favicon/inicial) do serviço,
-/// centralizado, com o nome no tooltip ao passar o mouse.
+// ---------------------------------------------------------------------------
+// Widget construction
+// ---------------------------------------------------------------------------
+
+/// The icon-only side rail (no header of its own).
+fn build_service_list() -> gtk::ListBox {
+    gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .css_classes(["navigation-sidebar", "rail"])
+        .build()
+}
+
+/// The content area: a stack of web views, starting on the empty state.
+fn build_content_stack() -> gtk::Stack {
+    let stack = gtk::Stack::builder()
+        .transition_type(gtk::StackTransitionType::Crossfade)
+        .vexpand(true)
+        .hexpand(true)
+        .build();
+    stack.add_named(&empty_state(), Some(EMPTY_PAGE));
+    stack
+}
+
+/// The single header bar spanning the whole window width.
+fn build_primary_header(title: &adw::WindowTitle) -> adw::HeaderBar {
+    let menu_button = gtk::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .tooltip_text(gettext("Main menu"))
+        .menu_model(&primary_menu())
+        .primary(true)
+        .build();
+    let reload_button = gtk::Button::builder()
+        .icon_name("view-refresh-symbolic")
+        .tooltip_text(gettext("Reload"))
+        .action_name("win.reload")
+        .build();
+    let home_button = gtk::Button::builder()
+        .icon_name("go-home-symbolic")
+        .tooltip_text(gettext("Service home"))
+        .action_name("win.home")
+        .build();
+
+    let header = adw::HeaderBar::new();
+    header.pack_start(&menu_button);
+    header.pack_start(&reload_button);
+    header.pack_start(&home_button);
+    header.set_title_widget(Some(title));
+    header
+}
+
+/// Wraps a widget in a vertically scrolling window (no horizontal scrollbar).
+fn scrollable(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
+    gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(child)
+        .vexpand(true)
+        .build()
+}
+
+/// Wraps dialog content below a plain header bar.
+fn dialog_toolbar(content: &impl IsA<gtk::Widget>) -> adw::ToolbarView {
+    let toolbar = adw::ToolbarView::new();
+    toolbar.add_top_bar(&adw::HeaderBar::new());
+    toolbar.set_content(Some(content));
+    toolbar
+}
+
+/// A flat, left-aligned button for the popover menus.
+fn menu_item(label: &str) -> gtk::Button {
+    let button = gtk::Button::with_label(label);
+    button.add_css_class("flat");
+    if let Some(lbl) = button.child().and_downcast::<gtk::Label>() {
+        lbl.set_xalign(0.0);
+    }
+    button
+}
+
+/// A rail row: just the service icon (favicon/initial), centered, with the name
+/// shown as a tooltip on hover.
 fn service_row(svc: &Service, icon: &gtk::Widget) -> gtk::ListBoxRow {
     let bx = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -600,7 +612,7 @@ fn service_row(svc: &Service, icon: &gtk::Widget) -> gtk::ListBoxRow {
         .build()
 }
 
-/// Página mostrada quando não há nenhum serviço.
+/// The page shown when there are no services.
 fn empty_state() -> adw::StatusPage {
     let button = gtk::Button::builder()
         .label(gettext("Add service"))
@@ -620,16 +632,16 @@ fn empty_state() -> adw::StatusPage {
 fn primary_menu() -> gio::Menu {
     let menu = gio::Menu::new();
 
-    let section = gio::Menu::new();
-    section.append(Some(&gettext("Add service")), Some("win.add-service"));
-    section.append(Some(&gettext("Remove current service")), Some("win.remove-service"));
-    menu.append_section(None, &section);
+    let services = gio::Menu::new();
+    services.append(Some(&gettext("Add service")), Some("win.add-service"));
+    services.append(Some(&gettext("Remove current service")), Some("win.remove-service"));
+    menu.append_section(None, &services);
 
-    let dnd = gio::Menu::new();
-    dnd.append(Some(&gettext("Do not disturb")), Some("win.toggle-dnd"));
-    dnd.append(Some(&gettext("Camera, mic & calls")), Some("win.toggle-media"));
-    dnd.append(Some(&gettext("Spell-check languages…")), Some("win.spell-languages"));
-    menu.append_section(None, &dnd);
+    let preferences = gio::Menu::new();
+    preferences.append(Some(&gettext("Do not disturb")), Some("win.toggle-dnd"));
+    preferences.append(Some(&gettext("Camera, mic & calls")), Some("win.toggle-media"));
+    preferences.append(Some(&gettext("Spell-check languages…")), Some("win.spell-languages"));
+    menu.append_section(None, &preferences);
 
     let about = gio::Menu::new();
     about.append(Some(&gettext("About Syltr")), Some("app.about"));
@@ -639,114 +651,65 @@ fn primary_menu() -> gio::Menu {
     menu
 }
 
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+/// Registers a stateless window action that runs `handler` when activated.
+fn add_action(ui: &Ui, name: &str, handler: impl Fn(&Ui) + 'static) {
+    let window = ui.window.clone();
+    let ui = ui.clone();
+    let action = gio::SimpleAction::new(name, None);
+    action.connect_activate(move |_, _| handler(&ui));
+    window.add_action(&action);
+}
+
+/// Registers a boolean stateful window action; `handler` receives the new value.
+fn add_toggle_action(ui: &Ui, name: &str, initial: bool, handler: impl Fn(&Ui, bool) + 'static) {
+    let window = ui.window.clone();
+    let ui = ui.clone();
+    let action = gio::SimpleAction::new_stateful(name, None, &initial.to_variant());
+    action.connect_change_state(move |a, value| {
+        if let Some(v) = value {
+            handler(&ui, v.get().unwrap_or(false));
+            a.set_state(v);
+        }
+    });
+    window.add_action(&action);
+}
+
 fn wire_actions(app: &adw::Application, ui: &Ui) {
-    // win.add-service
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new("add-service", None);
-        action.connect_activate(move |_, _| show_add_dialog(&uic));
-        ui.window.add_action(&action);
-    }
-    // win.reload
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new("reload", None);
-        action.connect_activate(move |_, _| {
-            if let Some(view) = uic.current_view() {
-                view.reload();
-            }
-        });
-        ui.window.add_action(&action);
-    }
-    // win.home
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new("home", None);
-        action.connect_activate(move |_, _| {
-            if let Some(view) = uic.current_view() {
-                view.go_home();
-            }
-        });
-        ui.window.add_action(&action);
-    }
-    // win.remove-service
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new("remove-service", None);
-        action.connect_activate(move |_, _| uic.remove_current());
-        ui.window.add_action(&action);
-    }
-    // win.mute (toggle silenciar do serviço atual)
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new_stateful("mute", None, &false.to_variant());
-        action.connect_change_state(move |a, value| {
-            if let Some(v) = value {
-                let m: bool = v.get().unwrap_or(false);
-                uic.set_current_muted(m);
-                a.set_state(v);
-            }
-        });
-        ui.window.add_action(&action);
-    }
-    // win.spell-languages (seletor de idiomas da ortografia)
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new("spell-languages", None);
-        action.connect_activate(move |_, _| uic.show_spell_dialog());
-        ui.window.add_action(&action);
-    }
-    // win.toggle-dnd (não perturbe global)
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new_stateful("toggle-dnd", None, &false.to_variant());
-        action.connect_change_state(move |a, value| {
-            if let Some(v) = value {
-                uic.dnd.set(v.get().unwrap_or(false));
-                uic.apply_all_notifications();
-                a.set_state(v);
-            }
-        });
-        ui.window.add_action(&action);
-    }
-    // win.toggle-media (câmera/mic/chamadas; off por padrão)
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new_stateful(
-            "toggle-media",
-            None,
-            &ui.media.get().to_variant(),
-        );
-        action.connect_change_state(move |a, value| {
-            if let Some(v) = value {
-                uic.set_media_enabled(v.get().unwrap_or(false));
-                a.set_state(v);
-            }
-        });
-        ui.window.add_action(&action);
-    }
-    // win.goto1..9 (Ctrl+1..9) e próximo/anterior
+    add_action(ui, "add-service", show_add_dialog);
+    add_action(ui, "reload", |ui| {
+        if let Some(view) = ui.current_view() {
+            view.reload();
+        }
+    });
+    add_action(ui, "home", |ui| {
+        if let Some(view) = ui.current_view() {
+            view.go_home();
+        }
+    });
+    add_action(ui, "remove-service", Ui::remove_current);
+    add_action(ui, "spell-languages", Ui::show_spell_dialog);
+
+    add_toggle_action(ui, "mute", false, |ui, muted| ui.set_current_muted(muted));
+    add_toggle_action(ui, "toggle-dnd", false, |ui, on| {
+        ui.dnd.set(on);
+        ui.apply_all_notifications();
+    });
+    add_toggle_action(ui, "toggle-media", ui.media.get(), |ui, on| ui.set_media_enabled(on));
+
+    // win.goto1..9 (Ctrl+1..9)
     for i in 1usize..=9 {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new(&format!("goto{i}"), None);
-        action.connect_activate(move |_, _| uic.select_index(i - 1));
-        ui.window.add_action(&action);
+        add_action(ui, &format!("goto{i}"), move |ui| ui.select_index(i - 1));
         app.set_accels_for_action(&format!("win.goto{i}"), &[&format!("<Primary>{i}")]);
     }
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new("next-service", None);
-        action.connect_activate(move |_, _| uic.step(1));
-        ui.window.add_action(&action);
-        app.set_accels_for_action("win.next-service", &["<Primary>Page_Down", "<Alt>Down"]);
-    }
-    {
-        let uic = ui.clone();
-        let action = gio::SimpleAction::new("prev-service", None);
-        action.connect_activate(move |_, _| uic.step(-1));
-        ui.window.add_action(&action);
-        app.set_accels_for_action("win.prev-service", &["<Primary>Page_Up", "<Alt>Up"]);
-    }
+    add_action(ui, "next-service", |ui| ui.step(1));
+    app.set_accels_for_action("win.next-service", &["<Primary>Page_Down", "<Alt>Down"]);
+    add_action(ui, "prev-service", |ui| ui.step(-1));
+    app.set_accels_for_action("win.prev-service", &["<Primary>Page_Up", "<Alt>Up"]);
+
     // app.about
     {
         let win = ui.window.clone();
@@ -766,7 +729,11 @@ fn wire_actions(app: &adw::Application, ui: &Ui) {
     app.set_accels_for_action("win.add-service", &["<Primary>n"]);
 }
 
-/// Diálogo "Adicionar serviço": catálogo + URL personalizada.
+// ---------------------------------------------------------------------------
+// Dialogs
+// ---------------------------------------------------------------------------
+
+/// The "Add service" dialog: the catalog plus a custom URL.
 fn show_add_dialog(ui: &Ui) {
     let dialog = adw::Dialog::builder()
         .title(gettext("Add service"))
@@ -774,8 +741,27 @@ fn show_add_dialog(ui: &Ui) {
         .content_height(600)
         .build();
 
-    // Catálogo
-    let catalog_group = adw::PreferencesGroup::builder().title(gettext("Services")).build();
+    let (custom, add_button) = custom_group(ui, &dialog);
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(18)
+        .margin_top(12)
+        .margin_bottom(18)
+        .margin_start(18)
+        .margin_end(18)
+        .build();
+    content.append(&catalog_group(ui, &dialog));
+    content.append(&custom);
+    content.append(&add_button);
+
+    dialog.set_child(Some(&dialog_toolbar(&scrollable(&content))));
+    dialog.present(Some(&ui.window));
+}
+
+/// Preferences group listing the known services from the catalog.
+fn catalog_group(ui: &Ui, dialog: &adw::Dialog) -> adw::PreferencesGroup {
+    let group = adw::PreferencesGroup::builder().title(gettext("Services")).build();
     for entry in catalog::CATALOG {
         let row = adw::ActionRow::builder()
             .title(entry.name)
@@ -793,71 +779,47 @@ fn show_add_dialog(ui: &Ui) {
             ui.add_service(&name, &url);
             dialog.close();
         });
-        catalog_group.add(&row);
+        group.add(&row);
     }
+    group
+}
 
-    // Personalizado
-    let custom_group = adw::PreferencesGroup::builder()
+/// Preferences group to add any web service by URL, plus its "Add" button. The
+/// button is returned separately so it sits below the group in the dialog.
+fn custom_group(ui: &Ui, dialog: &adw::Dialog) -> (adw::PreferencesGroup, gtk::Button) {
+    let group = adw::PreferencesGroup::builder()
         .title(gettext("Custom"))
         .description(gettext("Add any web service by URL."))
         .build();
 
     let name_row = adw::EntryRow::builder().title(gettext("Name")).build();
     let url_row = adw::EntryRow::builder().title(gettext("URL (https://…)")).build();
-    custom_group.add(&name_row);
-    custom_group.add(&url_row);
+    group.add(&name_row);
+    group.add(&url_row);
 
-    let add_custom = gtk::Button::builder()
+    let add_button = gtk::Button::builder()
         .label(gettext("Add"))
         .halign(gtk::Align::End)
         .margin_top(12)
         .css_classes(["suggested-action"])
         .build();
-    {
-        let ui = ui.clone();
-        let dialog = dialog.clone();
-        let name_row = name_row.clone();
-        let url_row = url_row.clone();
-        add_custom.connect_clicked(move |_| {
-            let url = url_row.text().to_string();
-            if url.trim().is_empty() {
-                url_row.add_css_class("error");
-                return;
-            }
-            let mut name = name_row.text().to_string();
-            if name.trim().is_empty() {
-                name = gettext("Service");
-            }
-            ui.add_service(&name, &url);
-            dialog.close();
-        });
-    }
 
-    let content = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(18)
-        .margin_top(12)
-        .margin_bottom(18)
-        .margin_start(18)
-        .margin_end(18)
-        .build();
-    content.append(&catalog_group);
-    content.append(&custom_group);
-    content.append(&add_custom);
-
-    let scroll = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
-        .child(&content)
-        .vexpand(true)
-        .build();
-
-    let header = adw::HeaderBar::new();
-    let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header);
-    toolbar.set_content(Some(&scroll));
-
-    dialog.set_child(Some(&toolbar));
-    dialog.present(Some(&ui.window));
+    let ui = ui.clone();
+    let dialog = dialog.clone();
+    add_button.connect_clicked(move |_| {
+        let url = url_row.text().to_string();
+        if url.trim().is_empty() {
+            url_row.add_css_class("error");
+            return;
+        }
+        let mut name = name_row.text().to_string();
+        if name.trim().is_empty() {
+            name = gettext("Service");
+        }
+        ui.add_service(&name, &url);
+        dialog.close();
+    });
+    (group, add_button)
 }
 
 fn show_about(parent: &impl IsA<gtk::Widget>) {

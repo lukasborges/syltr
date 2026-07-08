@@ -1,5 +1,5 @@
-//! Encaminha input do GTK para o CEF (OSR): mouse, scroll, teclado e foco.
-//! O host do browser chega assincronamente, então resolvemos via BrowserSlot.
+//! Forwards GTK input to CEF (OSR): mouse, scroll, keyboard and focus.
+//! The browser host arrives asynchronously, so we resolve it through BrowserSlot.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -19,6 +19,35 @@ const EVENTFLAG_ALT_DOWN: u32 = 1 << 3;
 const EVENTFLAG_LEFT_MOUSE_BUTTON: u32 = 1 << 4;
 const EVENTFLAG_MIDDLE_MOUSE_BUTTON: u32 = 1 << 5;
 const EVENTFLAG_RIGHT_MOUSE_BUTTON: u32 = 1 << 6;
+
+/// One "line" of scroll, in CEF wheel-delta units.
+const WHEEL_STEP: f64 = 40.0;
+
+/// Last known pointer position; shared so wheel events (which carry no
+/// coordinates) can be sent at the current cursor location.
+type PointerPos = Rc<Cell<(f64, f64)>>;
+
+/// Bitmask of the currently pressed mouse buttons, so CEF understands drags.
+type PressedButtons = Rc<Cell<u32>>;
+
+pub fn attach(area: &gtk::DrawingArea, slot: Rc<BrowserSlot>) {
+    area.set_focusable(true);
+    area.set_can_focus(true);
+
+    let pointer: PointerPos = Rc::new(Cell::new((0.0, 0.0)));
+    let buttons: PressedButtons = Rc::new(Cell::new(0));
+    let im = build_input_method(area, &slot);
+
+    attach_motion(area, &slot, &pointer, &buttons);
+    attach_click(area, &slot, &buttons);
+    attach_scroll(area, &slot, &pointer);
+    attach_keyboard(area, &slot, &im);
+    attach_focus(area, &slot, &im);
+}
+
+// ---------------------------------------------------------------------------
+// GTK -> CEF event translation
+// ---------------------------------------------------------------------------
 
 fn mods(state: gdk::ModifierType) -> u32 {
     let mut m = 0;
@@ -73,8 +102,8 @@ fn key_event(type_: KeyEventType, modifiers: u32, wkc: i32, ch: Option<char>) ->
     }
 }
 
-// Evento CHAR já com o caractere final (ex.: 'ã' composto de dead key + 'a').
-// Vem do `commit` do IMContext, então não temos keyval; usamos o char.
+/// A CHAR event carrying the final character (e.g. 'ã' composed from a dead key
+/// plus 'a'). It comes from the IMContext `commit`, so there is no keyval.
 fn char_event(c: char) -> KeyEvent {
     key_event(KeyEventType::CHAR, 0, c as i32, Some(c))
 }
@@ -120,203 +149,229 @@ fn win_key_code(k: gdk::Key) -> i32 {
     }
 }
 
-pub fn attach(area: &gtk::DrawingArea, slot: Rc<BrowserSlot>) {
-    area.set_focusable(true);
-    area.set_can_focus(true);
+// ---------------------------------------------------------------------------
+// Controllers
+// ---------------------------------------------------------------------------
 
-    let last = Rc::new(Cell::new((0.0f64, 0.0f64)));
-    // Flags dos botões pressionados (para o CEF entender arraste).
-    let buttons = Rc::new(Cell::new(0u32));
+fn attach_motion(
+    area: &gtk::DrawingArea,
+    slot: &Rc<BrowserSlot>,
+    pointer: &PointerPos,
+    buttons: &PressedButtons,
+) {
+    let motion = gtk::EventControllerMotion::new();
 
-    // Mouse move
-    {
-        let motion = gtk::EventControllerMotion::new();
-        let slot_m = slot.clone();
-        let last_m = last.clone();
-        let buttons_m = buttons.clone();
-        motion.connect_motion(move |_, x, y| {
-            last_m.set((x, y));
-            if let Some(host) = slot_m.host() {
-                host.send_mouse_move_event(Some(&mouse(x, y, buttons_m.get())), 0);
-            }
-        });
-        let slot_l = slot.clone();
-        motion.connect_leave(move |_| {
-            if let Some(host) = slot_l.host() {
-                host.send_mouse_move_event(Some(&mouse(-1.0, -1.0, 0)), 1);
-            }
-        });
-        area.add_controller(motion);
-    }
+    let slot_move = slot.clone();
+    let pointer_move = pointer.clone();
+    let buttons_move = buttons.clone();
+    motion.connect_motion(move |_, x, y| {
+        pointer_move.set((x, y));
+        if let Some(host) = slot_move.host() {
+            host.send_mouse_move_event(Some(&mouse(x, y, buttons_move.get())), 0);
+        }
+    });
 
-    // Clique (com arraste)
-    {
-        let click = gtk::GestureClick::new();
-        click.set_button(0);
-        let slot_p = slot.clone();
-        let area_w = area.downgrade();
-        let buttons_p = buttons.clone();
-        click.connect_pressed(move |g, n, x, y| {
-            if let Some(a) = area_w.upgrade() {
-                a.grab_focus();
-            }
-            let flag = button_flag(g.current_button());
-            buttons_p.set(buttons_p.get() | flag);
-            if let Some(host) = slot_p.host() {
-                host.set_focus(1);
-                host.send_mouse_click_event(
-                    Some(&mouse(x, y, buttons_p.get())),
-                    button_type(g.current_button()),
-                    0,
-                    n,
-                );
-            }
-        });
-        let slot_r = slot.clone();
-        let buttons_r = buttons.clone();
-        click.connect_released(move |g, n, x, y| {
-            if let Some(host) = slot_r.host() {
-                host.send_mouse_click_event(
-                    Some(&mouse(x, y, buttons_r.get())),
-                    button_type(g.current_button()),
-                    1,
-                    n,
-                );
-            }
-            buttons_r.set(buttons_r.get() & !button_flag(g.current_button()));
-        });
-        area.add_controller(click);
-    }
+    let slot_leave = slot.clone();
+    motion.connect_leave(move |_| {
+        if let Some(host) = slot_leave.host() {
+            host.send_mouse_move_event(Some(&mouse(-1.0, -1.0, 0)), 1);
+        }
+    });
 
-    // Scroll
-    {
-        let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
-        let slot_s = slot.clone();
-        let last_s = last.clone();
-        scroll.connect_scroll(move |_, dx, dy| {
-            let (x, y) = last_s.get();
-            if let Some(host) = slot_s.host() {
-                host.send_mouse_wheel_event(
-                    Some(&mouse(x, y, 0)),
-                    (-dx * 40.0) as i32,
-                    (-dy * 40.0) as i32,
-                );
-            }
-            glib::Propagation::Stop
-        });
-        area.add_controller(scroll);
-    }
+    area.add_controller(motion);
+}
 
-    // Input method (compõe dead keys: `~`+`a` -> `ã`, `´`+`e` -> `é`, etc.).
-    // O texto final chega pelo sinal `commit`; sem isso os acentos se perdem.
+fn attach_click(area: &gtk::DrawingArea, slot: &Rc<BrowserSlot>, buttons: &PressedButtons) {
+    let click = gtk::GestureClick::new();
+    click.set_button(0); // any button
+
+    let slot_press = slot.clone();
+    let area_press = area.downgrade();
+    let buttons_press = buttons.clone();
+    click.connect_pressed(move |g, n, x, y| {
+        if let Some(area) = area_press.upgrade() {
+            area.grab_focus();
+        }
+        buttons_press.set(buttons_press.get() | button_flag(g.current_button()));
+        if let Some(host) = slot_press.host() {
+            host.set_focus(1);
+            host.send_mouse_click_event(
+                Some(&mouse(x, y, buttons_press.get())),
+                button_type(g.current_button()),
+                0,
+                n,
+            );
+        }
+    });
+
+    let slot_release = slot.clone();
+    let buttons_release = buttons.clone();
+    click.connect_released(move |g, n, x, y| {
+        if let Some(host) = slot_release.host() {
+            host.send_mouse_click_event(
+                Some(&mouse(x, y, buttons_release.get())),
+                button_type(g.current_button()),
+                1,
+                n,
+            );
+        }
+        buttons_release.set(buttons_release.get() & !button_flag(g.current_button()));
+    });
+
+    area.add_controller(click);
+}
+
+fn attach_scroll(area: &gtk::DrawingArea, slot: &Rc<BrowserSlot>, pointer: &PointerPos) {
+    let scroll = gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
+    let slot_scroll = slot.clone();
+    let pointer_scroll = pointer.clone();
+    scroll.connect_scroll(move |_, dx, dy| {
+        let (x, y) = pointer_scroll.get();
+        if let Some(host) = slot_scroll.host() {
+            host.send_mouse_wheel_event(
+                Some(&mouse(x, y, 0)),
+                (-dx * WHEEL_STEP) as i32,
+                (-dy * WHEEL_STEP) as i32,
+            );
+        }
+        glib::Propagation::Stop
+    });
+    area.add_controller(scroll);
+}
+
+/// Builds the input method that composes dead keys (`~`+`a` -> `ã`, `´`+`e` ->
+/// `é`, etc.). The final text arrives via the `commit` signal; without it the
+/// accents are lost.
+fn build_input_method(area: &gtk::DrawingArea, slot: &Rc<BrowserSlot>) -> gtk::IMMulticontext {
     let im = gtk::IMMulticontext::new();
     im.set_client_widget(Some(area));
-    // OSR não desenha o preedit sublinhado; deixamos o IM compor sem preview.
+    // OSR does not draw the underlined preedit, so we let the IM compose without a preview.
     im.set_use_preedit(false);
+
+    let slot_commit = slot.clone();
+    im.connect_commit(move |_, text| {
+        if let Some(host) = slot_commit.host() {
+            for c in text.chars() {
+                host.send_key_event(Some(&char_event(c)));
+            }
+        }
+    });
+    im
+}
+
+fn attach_keyboard(area: &gtk::DrawingArea, slot: &Rc<BrowserSlot>, im: &gtk::IMMulticontext) {
+    let key = gtk::EventControllerKey::new();
+
+    let slot_press = slot.clone();
+    let im_press = im.clone();
+    key.connect_key_pressed(move |ctrl, keyval, _code, state| {
+        if try_editing_shortcut(&slot_press, keyval, state) {
+            return glib::Propagation::Stop;
+        }
+
+        let modifiers = mods(state);
+        let wkc = win_key_code(keyval);
+        // RAWKEYDOWN always (the key state for the renderer and keydown listeners).
+        if let Some(host) = slot_press.host() {
+            host.send_key_event(Some(&key_event(
+                KeyEventType::RAWKEYDOWN,
+                modifiers,
+                wkc,
+                keyval.to_unicode(),
+            )));
+        }
+
+        // Let the IM compose. If it consumes the key (dead key or plain char),
+        // the accented CHAR arrives via `commit` — we do not send CHAR here.
+        if let Some(ev) = ctrl.current_event() {
+            if im_press.filter_keypress(ev) {
+                return glib::Propagation::Stop;
+            }
+        }
+
+        // The IM did not handle it (e.g. no active input method): send CHAR directly.
+        if let Some(host) = slot_press.host() {
+            if let Some(c) = keyval.to_unicode() {
+                if !c.is_control() {
+                    host.send_key_event(Some(&key_event(
+                        KeyEventType::CHAR,
+                        modifiers,
+                        wkc,
+                        Some(c),
+                    )));
+                }
+            }
+        }
+        glib::Propagation::Proceed
+    });
+
+    let slot_release = slot.clone();
+    key.connect_key_released(move |_, keyval, _code, state| {
+        if let Some(host) = slot_release.host() {
+            host.send_key_event(Some(&key_event(
+                KeyEventType::KEYUP,
+                mods(state),
+                win_key_code(keyval),
+                keyval.to_unicode(),
+            )));
+        }
+    });
+
+    area.add_controller(key);
+}
+
+/// Handles the edit shortcuts (Ctrl+C/V/X/A/Z) through frame commands — more
+/// reliable than relying on key translation in the OSR. Returns `true` when the
+/// key press was consumed.
+fn try_editing_shortcut(
+    slot: &Rc<BrowserSlot>,
+    keyval: gdk::Key,
+    state: gdk::ModifierType,
+) -> bool {
+    if !state.contains(gdk::ModifierType::CONTROL_MASK)
+        || state.contains(gdk::ModifierType::ALT_MASK)
     {
-        let slot_c = slot.clone();
-        im.connect_commit(move |_, text| {
-            if let Some(host) = slot_c.host() {
-                for c in text.chars() {
-                    host.send_key_event(Some(&char_event(c)));
-                }
-            }
-        });
+        return false;
     }
-
-    // Teclado
-    {
-        let key = gtk::EventControllerKey::new();
-        let slot_kp = slot.clone();
-        let im_kp = im.clone();
-        key.connect_key_pressed(move |ctrl, keyval, _code, state| {
-            // Atalhos de edição (Ctrl+C/V/X/A/Z) via comandos do frame — mais
-            // confiável que depender da tradução de tecla no OSR.
-            if state.contains(gdk::ModifierType::CONTROL_MASK)
-                && !state.contains(gdk::ModifierType::ALT_MASK)
-            {
-                if let Some(c) = keyval.to_unicode().map(|c| c.to_ascii_lowercase()) {
-                    if matches!(c, 'c' | 'v' | 'x' | 'a' | 'z') {
-                        if let Some(frame) = slot_kp.main_frame() {
-                            match c {
-                                'c' => frame.copy(),
-                                'v' => frame.paste(),
-                                'x' => frame.cut(),
-                                'a' => frame.select_all(),
-                                'z' => frame.undo(),
-                                _ => {}
-                            }
-                            return glib::Propagation::Stop;
-                        }
-                    }
-                }
-            }
-
-            let m = mods(state);
-            let wkc = win_key_code(keyval);
-            // RAWKEYDOWN sempre (estado da tecla p/ o renderer e listeners de keydown).
-            if let Some(host) = slot_kp.host() {
-                host.send_key_event(Some(&key_event(
-                    KeyEventType::RAWKEYDOWN,
-                    m,
-                    wkc,
-                    keyval.to_unicode(),
-                )));
-            }
-
-            // Deixa o IM compor. Se consumir (dead key ou char comum), o CHAR já
-            // com acento vem pelo `commit` — não mandamos CHAR aqui.
-            if let Some(ev) = ctrl.current_event() {
-                if im_kp.filter_keypress(ev) {
-                    return glib::Propagation::Stop;
-                }
-            }
-
-            // IM não tratou (ex.: sem input method ativo): CHAR direto.
-            if let Some(host) = slot_kp.host() {
-                if let Some(c) = keyval.to_unicode() {
-                    if !c.is_control() {
-                        host.send_key_event(Some(&key_event(KeyEventType::CHAR, m, wkc, Some(c))));
-                    }
-                }
-            }
-            glib::Propagation::Proceed
-        });
-        let slot_kr = slot.clone();
-        key.connect_key_released(move |_, keyval, _code, state| {
-            if let Some(host) = slot_kr.host() {
-                host.send_key_event(Some(&key_event(
-                    KeyEventType::KEYUP,
-                    mods(state),
-                    win_key_code(keyval),
-                    keyval.to_unicode(),
-                )));
-            }
-        });
-        area.add_controller(key);
+    let Some(c) = keyval.to_unicode().map(|c| c.to_ascii_lowercase()) else {
+        return false;
+    };
+    let Some(frame) = slot.main_frame() else {
+        return false;
+    };
+    match c {
+        'c' => frame.copy(),
+        'v' => frame.paste(),
+        'x' => frame.cut(),
+        'a' => frame.select_all(),
+        'z' => frame.undo(),
+        _ => return false,
     }
+    true
+}
 
-    // Foco
-    {
-        let focus = gtk::EventControllerFocus::new();
-        let slot_fe = slot.clone();
-        let im_fe = im.clone();
-        focus.connect_enter(move |_| {
-            im_fe.focus_in();
-            if let Some(host) = slot_fe.host() {
-                host.set_focus(1);
-            }
-        });
-        let slot_fl = slot.clone();
-        let im_fl = im.clone();
-        focus.connect_leave(move |_| {
-            // Reseta composição pendente ao perder o foco (dead key solta).
-            im_fl.reset();
-            im_fl.focus_out();
-            if let Some(host) = slot_fl.host() {
-                host.set_focus(0);
-            }
-        });
-        area.add_controller(focus);
-    }
+fn attach_focus(area: &gtk::DrawingArea, slot: &Rc<BrowserSlot>, im: &gtk::IMMulticontext) {
+    let focus = gtk::EventControllerFocus::new();
+
+    let slot_enter = slot.clone();
+    let im_enter = im.clone();
+    focus.connect_enter(move |_| {
+        im_enter.focus_in();
+        if let Some(host) = slot_enter.host() {
+            host.set_focus(1);
+        }
+    });
+
+    let slot_leave = slot.clone();
+    let im_leave = im.clone();
+    focus.connect_leave(move |_| {
+        // Reset any pending composition when focus is lost (dangling dead key).
+        im_leave.reset();
+        im_leave.focus_out();
+        if let Some(host) = slot_leave.host() {
+            host.set_focus(0);
+        }
+    });
+
+    area.add_controller(focus);
 }

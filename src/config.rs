@@ -1,25 +1,36 @@
-//! Persistência da lista de serviços e localização das sessões por serviço.
+//! Persistence of the service list and location of the per-service sessions.
 //!
-//! A lista é salva como JSON em `$XDG_CONFIG_HOME/dev.syltr.Syltr/services.json`.
-//! Cada serviço tem sua própria pasta de sessão em
-//! `$XDG_DATA_HOME/dev.syltr.Syltr/sessions/<id>/` (cookies/armazenamento
-//! isolados, como as "contas" separadas do Franz).
+//! The list is saved as JSON in `$XDG_CONFIG_HOME/dev.syltr.Syltr/services.json`.
+//! Each service has its own session folder in
+//! `$XDG_DATA_HOME/dev.syltr.Syltr/sessions/<id>/` (isolated cookies/storage,
+//! like the separate "accounts" in Franz).
 
 use gtk::glib;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::catalog;
+use crate::{catalog, spellcheck};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Service {
-    /// id único da instância (base do slug do serviço, ex. "whatsapp", "slack-2")
+    /// Unique id of the instance (based on the service slug, e.g. "whatsapp", "slack-2").
     pub id: String,
     pub name: String,
     pub url: String,
-    /// silencia as notificações desse serviço
+    /// Silences this service's notifications.
     #[serde(default)]
     pub muted: bool,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Settings {
+    /// Languages enabled in the spell checker (empty = disabled).
+    #[serde(default)]
+    pub spell_languages: Vec<String>,
+    /// Media/WebRTC capture (camera, mic, calls). Off by default because it
+    /// triggers a PipeWire crash on some systems.
+    #[serde(default)]
+    pub media_enabled: bool,
 }
 
 fn config_dir() -> PathBuf {
@@ -30,7 +41,11 @@ fn services_file() -> PathBuf {
     config_dir().join("services.json")
 }
 
-/// Pasta de dados isolada de um serviço (cookies, localStorage, cache).
+fn settings_file() -> PathBuf {
+    config_dir().join("settings.json")
+}
+
+/// Isolated data folder of a service (cookies, localStorage, cache).
 pub fn session_dir(id: &str) -> PathBuf {
     glib::user_data_dir()
         .join(crate::APP_ID)
@@ -38,13 +53,17 @@ pub fn session_dir(id: &str) -> PathBuf {
         .join(id)
 }
 
+// ---------------------------------------------------------------------------
+// Service list
+// ---------------------------------------------------------------------------
+
 pub fn load() -> Vec<Service> {
     if let Ok(text) = std::fs::read_to_string(services_file()) {
         if let Ok(list) = serde_json::from_str::<Vec<Service>>(&text) {
             return list;
         }
     }
-    // Primeira execução: semeia com os serviços padrão e grava.
+    // First run: seed with the default services and persist them.
     let defaults = default_services();
     save(&defaults);
     defaults
@@ -53,16 +72,16 @@ pub fn load() -> Vec<Service> {
 pub fn save(list: &[Service]) {
     let dir = config_dir();
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        eprintln!("syltr: não consegui criar {}: {e}", dir.display());
+        eprintln!("syltr: could not create {}: {e}", dir.display());
         return;
     }
     match serde_json::to_string_pretty(list) {
         Ok(json) => {
             if let Err(e) = std::fs::write(services_file(), json) {
-                eprintln!("syltr: falha ao salvar serviços: {e}");
+                eprintln!("syltr: failed to save services: {e}");
             }
         }
-        Err(e) => eprintln!("syltr: falha ao serializar serviços: {e}"),
+        Err(e) => eprintln!("syltr: failed to serialize services: {e}"),
     }
 }
 
@@ -79,61 +98,57 @@ fn default_services() -> Vec<Service> {
         .collect()
 }
 
-/// Gera um id único a partir de um nome/base, evitando colisão com os existentes.
+/// Generates a unique id from a name/base, avoiding collisions with existing ones.
 pub fn make_id(existing: &[Service], base: &str) -> String {
+    let slug = slugify(base);
+    if !id_taken(existing, &slug) {
+        return slug;
+    }
+    for suffix in 2.. {
+        let candidate = format!("{slug}-{suffix}");
+        if !id_taken(existing, &candidate) {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
+/// Lowercases and reduces a string to an ASCII-alphanumeric slug.
+fn slugify(base: &str) -> String {
     let slug: String = base
         .to_lowercase()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect();
-    let slug = slug.trim_matches('-').to_string();
-    let slug = if slug.is_empty() { "servico".to_string() } else { slug };
-
-    if !existing.iter().any(|s| s.id == slug) {
-        return slug;
-    }
-    let mut n = 2;
-    loop {
-        let candidate = format!("{slug}-{n}");
-        if !existing.iter().any(|s| s.id == candidate) {
-            return candidate;
-        }
-        n += 1;
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        "service".to_string()
+    } else {
+        slug.to_string()
     }
 }
 
-// ---------------------------------------------------------------------------
-// Configurações gerais (settings.json)
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Settings {
-    /// idiomas ativos na verificação ortográfica (vazio = desligado)
-    #[serde(default)]
-    pub spell_languages: Vec<String>,
-    /// captura de mídia/WebRTC (câmera, mic, chamadas). Off por padrão porque
-    /// dispara um crash do PipeWire em alguns sistemas.
-    #[serde(default)]
-    pub media_enabled: bool,
+fn id_taken(existing: &[Service], id: &str) -> bool {
+    existing.iter().any(|s| s.id == id)
 }
 
-fn settings_file() -> PathBuf {
-    config_dir().join("settings.json")
-}
+// ---------------------------------------------------------------------------
+// General settings
+// ---------------------------------------------------------------------------
 
 pub fn load_settings() -> Settings {
     if let Ok(text) = std::fs::read_to_string(settings_file()) {
-        if let Ok(s) = serde_json::from_str::<Settings>(&text) {
-            return s;
+        if let Ok(settings) = serde_json::from_str::<Settings>(&text) {
+            return settings;
         }
     }
-    // Primeira execução: começa com todos os dicionários instalados.
-    let s = Settings {
-        spell_languages: default_spell_languages(),
+    // First run: start with every installed dictionary enabled.
+    let settings = Settings {
+        spell_languages: spellcheck::default_languages(),
         media_enabled: false,
     };
-    save_settings(&s);
-    s
+    save_settings(&settings);
+    settings
 }
 
 pub fn save_settings(settings: &Settings) {
@@ -144,80 +159,12 @@ pub fn save_settings(settings: &Settings) {
     }
 }
 
-/// Códigos de idioma dos dicionários hunspell/myspell instalados no sistema.
-pub fn available_dictionaries() -> Vec<String> {
-    let dirs = [
-        "/usr/share/hunspell",
-        "/usr/share/myspell/dicts",
-        "/usr/local/share/hunspell",
-    ];
-    let mut langs: Vec<String> = Vec::new();
-    for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("dic") {
-                if let Some(lang) = path.file_stem().and_then(|s| s.to_str()) {
-                    if !langs.iter().any(|l| l == lang) {
-                        langs.push(lang.to_string());
-                    }
-                }
-            }
-        }
-    }
-    langs
-}
-
-/// Dicionários instalados, ordenados com os idiomas do locale primeiro.
-pub fn default_spell_languages() -> Vec<String> {
-    let available = available_dictionaries();
-    let mut ordered: Vec<String> = Vec::new();
-    for lang in locale_languages() {
-        if available.iter().any(|a| *a == lang) && !ordered.contains(&lang) {
-            ordered.push(lang);
-        }
-    }
-    for lang in available {
-        if !ordered.contains(&lang) {
-            ordered.push(lang);
-        }
-    }
-    ordered
-}
-
-fn locale_languages() -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for var in ["LC_MESSAGES", "LANG", "LANGUAGE"] {
-        if let Ok(value) = std::env::var(var) {
-            for part in value.split(':') {
-                let lang = part
-                    .split('.')
-                    .next()
-                    .unwrap_or("")
-                    .split('@')
-                    .next()
-                    .unwrap_or("");
-                if !lang.is_empty()
-                    && lang != "C"
-                    && lang != "POSIX"
-                    && !out.iter().any(|l| l == lang)
-                {
-                    out.push(lang.to_string());
-                }
-            }
-        }
-    }
-    out
-}
-
-/// Normaliza uma URL digitada pelo usuário (adiciona https:// se faltar esquema).
+/// Normalizes a URL typed by the user (prepends https:// if the scheme is missing).
 pub fn normalize_url(input: &str) -> String {
-    let t = input.trim();
-    if t.starts_with("http://") || t.starts_with("https://") {
-        t.to_string()
+    let trimmed = input.trim();
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
     } else {
-        format!("https://{t}")
+        format!("https://{trimmed}")
     }
 }

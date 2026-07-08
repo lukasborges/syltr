@@ -1,10 +1,10 @@
-//! Ícone de um serviço no rail lateral.
+//! Icon of a service in the side rail.
 //!
-//! Um "tile" arredondado neutro (mesma cor para todos, derivada da cor de
-//! texto do tema, então adapta claro/escuro) com o favicon centralizado por
-//! cima — os favicons coloridos se destacam sozinhos, visual coeso e discreto.
-//! Enquanto o favicon não carregou, mostra a inicial do nome. Um badge de não
-//! lidas aparece no canto superior direito.
+//! A neutral rounded "tile" (same color for all, derived from the theme's text
+//! color, so it adapts to light/dark) with the favicon centered on top — the
+//! colored favicons stand out on their own, for a cohesive and discreet look.
+//! While the favicon has not loaded, it shows the name's initial. An unread
+//! badge appears in the top-right corner.
 
 use gtk::cairo;
 use gtk::gdk;
@@ -12,8 +12,10 @@ use gtk::prelude::*;
 
 const TILE: i32 = 40;
 const RADIUS: f64 = 11.0;
-/// Opacidade do tile neutro (sobre a cor de texto do tema).
+/// Opacity of the neutral tile (over the theme's text color).
 const TILE_ALPHA: f64 = 0.10;
+/// Favicon count above which the badge shows "99+".
+const BADGE_MAX: u32 = 99;
 
 #[derive(Clone)]
 pub struct ServiceIcon {
@@ -25,42 +27,14 @@ pub struct ServiceIcon {
 
 impl ServiceIcon {
     pub fn new(name: &str) -> Self {
-        let bg = gtk::DrawingArea::new();
-        bg.set_content_width(TILE);
-        bg.set_content_height(TILE);
-        bg.set_draw_func(|area, cr, w, h| {
-            // Tile neutro: cor de texto do tema com baixa opacidade.
-            let c = area.color();
-            rounded_rect(cr, 0.5, 0.5, w as f64 - 1.0, h as f64 - 1.0, RADIUS);
-            cr.set_source_rgba(c.red() as f64, c.green() as f64, c.blue() as f64, TILE_ALPHA);
-            let _ = cr.fill();
-        });
-
-        let initial = name
-            .chars()
-            .next()
-            .map(|c| c.to_uppercase().to_string())
-            .unwrap_or_default();
-        let label = gtk::Label::new(Some(&initial));
-        label.add_css_class("service-initial");
-        label.set_halign(gtk::Align::Center);
-        label.set_valign(gtk::Align::Center);
-
-        let image = gtk::Image::new();
-        image.set_halign(gtk::Align::Center);
-        image.set_valign(gtk::Align::Center);
-        image.set_visible(false);
-
-        // Badge de não lidas, no canto superior direito.
-        let badge = gtk::Label::new(None);
-        badge.add_css_class("unread-badge");
-        badge.set_halign(gtk::Align::End);
-        badge.set_valign(gtk::Align::Start);
-        badge.set_visible(false);
+        let background = build_tile_background();
+        let label = build_initial_label(name);
+        let image = build_favicon_image();
+        let badge = build_unread_badge();
 
         let root = gtk::Overlay::new();
         root.set_size_request(TILE, TILE);
-        root.set_child(Some(&bg));
+        root.set_child(Some(&background));
         root.add_overlay(&label);
         root.add_overlay(&image);
         root.add_overlay(&badge);
@@ -73,31 +47,31 @@ impl ServiceIcon {
         }
     }
 
-    /// Define a contagem de não lidas exibida no badge (0 esconde).
+    /// Sets the unread count shown in the badge (0 hides it).
     pub fn set_badge(&self, count: u32) {
         if count == 0 {
             self.badge.set_visible(false);
-        } else {
-            let text = if count > 99 {
-                "99+".to_string()
-            } else {
-                count.to_string()
-            };
-            self.badge.set_label(&text);
-            self.badge.set_visible(true);
+            return;
         }
+        let text = if count > BADGE_MAX {
+            format!("{BADGE_MAX}+")
+        } else {
+            count.to_string()
+        };
+        self.badge.set_label(&text);
+        self.badge.set_visible(true);
     }
 
     pub fn widget(&self) -> &gtk::Widget {
         self.root.upcast_ref()
     }
 
-    /// Atualiza o ícone com o favicon (ou volta à inicial se `None`).
+    /// Updates the icon with the favicon (or falls back to the initial if `None`).
     pub fn set_favicon(&self, texture: Option<&gdk::Texture>) {
         match texture {
             Some(tex) => {
                 let native = tex.width().max(tex.height());
-                // Tamanho enxuto: favicon menor, com respiro no tile.
+                // Lean size: a smaller favicon, with some breathing room in the tile.
                 let size = native.clamp(16, 24);
                 self.image.set_pixel_size(size);
                 self.image.set_paintable(Some(tex));
@@ -113,7 +87,53 @@ impl ServiceIcon {
     }
 }
 
-/// Desenha um retângulo arredondado no contexto Cairo (path, não preenche).
+/// Neutral tile: the theme's text color at low opacity.
+fn build_tile_background() -> gtk::DrawingArea {
+    let background = gtk::DrawingArea::new();
+    background.set_content_width(TILE);
+    background.set_content_height(TILE);
+    background.set_draw_func(|area, cr, w, h| {
+        let c = area.color();
+        rounded_rect(cr, 0.5, 0.5, w as f64 - 1.0, h as f64 - 1.0, RADIUS);
+        cr.set_source_rgba(c.red() as f64, c.green() as f64, c.blue() as f64, TILE_ALPHA);
+        let _ = cr.fill();
+    });
+    background
+}
+
+/// Placeholder shown until the favicon loads: the name's uppercase initial.
+fn build_initial_label(name: &str) -> gtk::Label {
+    let initial = name
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_default();
+    let label = gtk::Label::new(Some(&initial));
+    label.add_css_class("service-initial");
+    label.set_halign(gtk::Align::Center);
+    label.set_valign(gtk::Align::Center);
+    label
+}
+
+fn build_favicon_image() -> gtk::Image {
+    let image = gtk::Image::new();
+    image.set_halign(gtk::Align::Center);
+    image.set_valign(gtk::Align::Center);
+    image.set_visible(false);
+    image
+}
+
+/// Unread badge, in the top-right corner.
+fn build_unread_badge() -> gtk::Label {
+    let badge = gtk::Label::new(None);
+    badge.add_css_class("unread-badge");
+    badge.set_halign(gtk::Align::End);
+    badge.set_valign(gtk::Align::Start);
+    badge.set_visible(false);
+    badge
+}
+
+/// Traces a rounded rectangle onto the Cairo context (path only, no fill).
 fn rounded_rect(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
     let d = std::f64::consts::PI / 180.0;
     cr.new_sub_path();
