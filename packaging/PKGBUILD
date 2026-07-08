@@ -27,7 +27,7 @@ depends=(
   'hicolor-icon-theme'
 )
 makedepends=('rust' 'cargo' 'git' 'gettext' 'clang')
-options=('!strip' '!debug' '!lto')
+options=('strip' '!debug' '!lto')
 source=("$pkgname::git+file:///home/lucasborges/Projects/Syltr#branch=cef-spike")
 sha256sums=('SKIP')
 
