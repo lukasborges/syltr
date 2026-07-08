@@ -7,6 +7,7 @@ mod catalog;
 mod config;
 mod engine;
 mod icon;
+mod imgproxy;
 mod input;
 mod window;
 

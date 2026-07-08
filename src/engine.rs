@@ -513,6 +513,7 @@ wrap_client! {
         permission_handler: PermissionHandler,
         context_menu_handler: ContextMenuHandler,
         download_handler: DownloadHandler,
+        request_handler: RequestHandler,
     }
 
     impl Client {
@@ -534,6 +535,9 @@ wrap_client! {
         fn download_handler(&self) -> Option<DownloadHandler> {
             Some(self.download_handler.clone())
         }
+        fn request_handler(&self) -> Option<RequestHandler> {
+            Some(self.request_handler.clone())
+        }
     }
 }
 
@@ -544,6 +548,7 @@ impl ClientBuilder {
         icon: ServiceIcon,
         muted: bool,
         spell_langs: Vec<String>,
+        ctx: Option<RequestContext>,
     ) -> Client {
         Self::new(
             RenderHandlerBuilder::build(state.clone()),
@@ -554,6 +559,7 @@ impl ClientBuilder {
             DownloadHandlerBuilder::build(SyltrDownloadHandler {
                 notified: Rc::new(RefCell::new(std::collections::HashSet::new())),
             }),
+            crate::imgproxy::ImgRequestHandlerBuilder::build(ctx),
         )
     }
 }
@@ -990,6 +996,7 @@ impl ServiceView {
                 icon.clone(),
                 muted,
                 spell_langs.to_vec(),
+                context.clone(),
             )),
             Some(&CefString::from(url)),
             Some(&browser_settings),
