@@ -93,6 +93,34 @@ const NOTIFY_PERMISSION_JS: &str = r#"
 })();
 "#;
 
+/// Idiomas para a verificação ortográfica, derivados do locale do sistema.
+/// Ex.: "pt_BR.UTF-8:en_US" -> ["pt_BR", "en_US"]. O enchant mapeia cada um
+/// para o dicionário hunspell instalado correspondente.
+fn spell_languages() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for var in ["LC_MESSAGES", "LANG", "LANGUAGE"] {
+        if let Ok(value) = std::env::var(var) {
+            for part in value.split(':') {
+                let lang = part
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .split('@')
+                    .next()
+                    .unwrap_or("");
+                if !lang.is_empty()
+                    && lang != "C"
+                    && lang != "POSIX"
+                    && !out.iter().any(|l| l == lang)
+                {
+                    out.push(lang.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Executa um script na webview (fire-and-forget).
 fn run_js(webview: &webkit6::WebView, script: &str) {
     webview.evaluate_javascript(
@@ -179,6 +207,17 @@ impl ServiceView {
             .vexpand(true)
             .hexpand(true)
             .build();
+
+        // Verificação ortográfica usando os dicionários (enchant/hunspell) do
+        // sistema, nos idiomas do locale do usuário.
+        if let Some(context) = webview.context().or_else(webkit6::WebContext::default) {
+            context.set_spell_checking_enabled(true);
+            let langs = spell_languages();
+            if !langs.is_empty() {
+                let refs: Vec<&str> = langs.iter().map(String::as_str).collect();
+                context.set_spell_checking_languages(&refs);
+            }
+        }
 
         // Concede permissões (notificações, mídia) automaticamente — é um
         // cliente dedicado de mensagens, então o comportamento esperado é

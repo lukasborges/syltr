@@ -83,6 +83,15 @@ PKGS_WEBKIT=(
     webkitgtk-6.0
 )
 
+# Verificação ortográfica: enchant + backend hunspell + dicionário. O WebKit
+# usa o enchant, que precisa da lib 'hunspell' (libhunspell-1.7.so) e de ao
+# menos um dicionário. pt_BR não está nos repos oficiais (AUR: hunspell-pt-br).
+PKGS_SPELL=(
+    enchant
+    hunspell
+    hunspell-en_us
+)
+
 # Ferramentas de IDE / dev GNOME
 PKGS_IDE=(
     gnome-builder     # IDE oficial do GNOME
@@ -94,8 +103,9 @@ PKGS_IDE=(
 
 info "Atualizando índice de pacotes e instalando toolchain + stack GNOME..."
 sudo pacman -Syu --needed --noconfirm \
-    "${PKGS_BASE[@]}" "${PKGS_GNOME[@]}" "${PKGS_WEBKIT[@]}"
-ok "Toolchain, GTK4/libadwaita e WebKitGTK instalados."
+    "${PKGS_BASE[@]}" "${PKGS_GNOME[@]}" "${PKGS_WEBKIT[@]}" "${PKGS_SPELL[@]}"
+ok "Toolchain, GTK4/libadwaita, WebKitGTK e verificação ortográfica instalados."
+warn "Dicionário pt_BR não está nos repos oficiais — via AUR: paru -S hunspell-pt-br"
 
 if [[ $INSTALL_IDE -eq 1 ]]; then
     info "Instalando IDE e ferramentas de desenvolvimento GNOME..."
