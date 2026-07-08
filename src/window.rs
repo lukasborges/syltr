@@ -324,10 +324,16 @@ impl Ui {
         s3.append(Some("Remover serviço"), Some("win.remove-service"));
         menu.append_section(None, &s3);
 
+        // Ancora na janela (estável), NÃO na linha: remover o serviço
+        // reconstrói o rail e destruiria a linha, cancelando a ação.
+        let (wx, wy) = row
+            .compute_point(&self.window, &gtk::graphene::Point::new(x as f32, y as f32))
+            .map(|p| (p.x() as f64, p.y() as f64))
+            .unwrap_or((x, y));
         let popover = gtk::PopoverMenu::from_model(Some(&menu));
-        popover.set_parent(row);
+        popover.set_parent(&self.window);
         popover.set_has_arrow(false);
-        popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+        popover.set_pointing_to(Some(&gdk::Rectangle::new(wx as i32, wy as i32, 1, 1)));
         popover.connect_closed(|p| p.unparent());
         popover.popup();
     }
