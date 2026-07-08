@@ -17,7 +17,6 @@ use gtk::prelude::*;
 
 const TILE: i32 = 40;
 const RADIUS: f64 = 11.0;
-const PADDING: i32 = 6;
 /// Opacidade do fundo: um leve tint da cor do ícone, para o ícone (em cor
 /// cheia) sempre se destacar — ícones de cor única não "somem" no fundo.
 const BG_ALPHA: f64 = 0.18;
@@ -111,10 +110,8 @@ impl ServiceIcon {
         match texture {
             Some(tex) => {
                 let native = tex.width().max(tex.height());
-                let inner = TILE - 2 * PADDING;
-                // Mantém perto do tamanho nativo: sem upscale agressivo (borra),
-                // e limita ao espaço interno do tile.
-                let size = native.clamp(18, inner);
+                // Tamanho de exibição enxuto (favicon menor, mais respiro no tile).
+                let size = native.clamp(16, 22);
                 self.image.set_pixel_size(size);
                 self.image.set_paintable(Some(tex));
                 if let Some(c) = tile_color(tex) {
