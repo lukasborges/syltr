@@ -34,11 +34,15 @@ const FAVICON_JS: &str = r#"
     img.crossOrigin = 'anonymous';
     img.onload = () => {
       try {
+        const nat = Math.max(img.naturalWidth || 0, img.naturalHeight || 0) || 64;
+        const isSvg = /\.svg(\?|$)/i.test(img.src);
+        // Não amplia raster (evita borrão); SVG rasteriza em alta resolução.
+        const target = isSvg ? 128 : Math.min(nat, 128);
         const c = document.createElement('canvas');
-        c.width = 64; c.height = 64;
+        c.width = target; c.height = target;
         const ctx = c.getContext('2d');
-        ctx.clearRect(0, 0, 64, 64);
-        ctx.drawImage(img, 0, 0, 64, 64);
+        ctx.clearRect(0, 0, target, target);
+        ctx.drawImage(img, 0, 0, target, target);
         window.webkit.messageHandlers.faviconReady.postMessage(c.toDataURL('image/png'));
       } catch (e) {}
     };
@@ -93,80 +97,16 @@ const NOTIFY_PERMISSION_JS: &str = r#"
 })();
 "#;
 
-/// Idiomas para a verificação ortográfica: os dicionários realmente instalados
-/// no sistema, ordenados com os do locale do usuário primeiro. Assim funciona
-/// com o que o usuário instalou (ex.: só pt_BR), mesmo que o locale seja outro.
-fn spell_languages() -> Vec<String> {
-    let available = available_dictionaries();
-    if available.is_empty() {
-        return Vec::new();
-    }
-    let mut ordered: Vec<String> = Vec::new();
-    // Preferidos do locale, se estiverem instalados.
-    for lang in locale_languages() {
-        if available.iter().any(|a| *a == lang) && !ordered.contains(&lang) {
-            ordered.push(lang);
+/// Aplica a verificação ortográfica no contexto da webview, nos idiomas dados
+/// (lista vazia desliga).
+fn apply_spell(webview: &webkit6::WebView, langs: &[String]) {
+    if let Some(context) = webview.context().or_else(webkit6::WebContext::default) {
+        context.set_spell_checking_enabled(!langs.is_empty());
+        if !langs.is_empty() {
+            let refs: Vec<&str> = langs.iter().map(String::as_str).collect();
+            context.set_spell_checking_languages(&refs);
         }
     }
-    // Depois, o restante dos dicionários instalados.
-    for lang in available {
-        if !ordered.contains(&lang) {
-            ordered.push(lang);
-        }
-    }
-    ordered
-}
-
-/// Códigos de idioma dos dicionários hunspell/myspell instalados no sistema.
-fn available_dictionaries() -> Vec<String> {
-    let dirs = [
-        "/usr/share/hunspell",
-        "/usr/share/myspell/dicts",
-        "/usr/local/share/hunspell",
-    ];
-    let mut langs: Vec<String> = Vec::new();
-    for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("dic") {
-                if let Some(lang) = path.file_stem().and_then(|s| s.to_str()) {
-                    if !langs.iter().any(|l| l == lang) {
-                        langs.push(lang.to_string());
-                    }
-                }
-            }
-        }
-    }
-    langs
-}
-
-/// Idiomas do locale do usuário (ex.: "pt_BR.UTF-8:en_US" -> ["pt_BR", "en_US"]).
-fn locale_languages() -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for var in ["LC_MESSAGES", "LANG", "LANGUAGE"] {
-        if let Ok(value) = std::env::var(var) {
-            for part in value.split(':') {
-                let lang = part
-                    .split('.')
-                    .next()
-                    .unwrap_or("")
-                    .split('@')
-                    .next()
-                    .unwrap_or("");
-                if !lang.is_empty()
-                    && lang != "C"
-                    && lang != "POSIX"
-                    && !out.iter().any(|l| l == lang)
-                {
-                    out.push(lang.to_string());
-                }
-            }
-        }
-    }
-    out
 }
 
 /// Executa um script na webview (fire-and-forget).
@@ -206,6 +146,7 @@ impl ServiceView {
         app: &adw::Application,
         dnd: Rc<Cell<bool>>,
         muted: bool,
+        spell_langs: &[String],
     ) -> Self {
         let data = session_dir.join("data");
         let cache = session_dir.join("cache");
@@ -256,16 +197,9 @@ impl ServiceView {
             .hexpand(true)
             .build();
 
-        // Verificação ortográfica usando os dicionários (enchant/hunspell) do
-        // sistema, nos idiomas do locale do usuário.
-        if let Some(context) = webview.context().or_else(webkit6::WebContext::default) {
-            context.set_spell_checking_enabled(true);
-            let langs = spell_languages();
-            if !langs.is_empty() {
-                let refs: Vec<&str> = langs.iter().map(String::as_str).collect();
-                context.set_spell_checking_languages(&refs);
-            }
-        }
+        // Verificação ortográfica (backend enchant/hunspell), nos idiomas
+        // escolhidos. Aplicada ao contexto compartilhado das webviews.
+        apply_spell(&webview, spell_langs);
 
         // Concede permissões (notificações, mídia) automaticamente — é um
         // cliente dedicado de mensagens, então o comportamento esperado é
@@ -367,6 +301,11 @@ impl ServiceView {
     /// Silencia/dessilencia as notificações do serviço.
     pub fn set_muted(&self, muted: bool) {
         self.muted.set(muted);
+    }
+
+    /// Atualiza os idiomas da verificação ortográfica (lista vazia desliga).
+    pub fn set_spell_languages(&self, langs: &[String]) {
+        apply_spell(&self.webview, langs);
     }
 
     /// Widget a ser inserido no `gtk::Stack` da janela.

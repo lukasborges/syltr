@@ -31,6 +31,8 @@ struct Ui {
     app: adw::Application,
     /// modo "não perturbe" global (suprime todas as notificações)
     dnd: Rc<Cell<bool>>,
+    /// idiomas ativos da verificação ortográfica
+    spell: Rc<RefCell<Vec<String>>>,
     state: Rc<RefCell<State>>,
 }
 
@@ -134,6 +136,7 @@ pub fn build(app: &adw::Application) {
         title,
         app: app.clone(),
         dnd: Rc::new(Cell::new(false)),
+        spell: Rc::new(RefCell::new(config::load_settings().spell_languages)),
         state,
     };
 
@@ -169,6 +172,7 @@ impl Ui {
             &self.app,
             self.dnd.clone(),
             svc.muted,
+            &self.spell.borrow(),
         );
         self.stack.add_named(view.widget(), Some(&svc.id));
         self.state
@@ -338,6 +342,83 @@ impl Ui {
         popover.popup();
     }
 
+    /// Aplica os idiomas de ortografia atuais a todos os serviços e persiste.
+    fn apply_spell_languages(&self) {
+        let langs = self.spell.borrow().clone();
+        {
+            let st = self.state.borrow();
+            for view in st.views.values() {
+                view.set_spell_languages(&langs);
+            }
+        }
+        config::save_settings(&config::Settings {
+            spell_languages: langs,
+        });
+    }
+
+    /// Diálogo para escolher os idiomas da verificação ortográfica.
+    fn show_spell_dialog(&self) {
+        let dialog = adw::Dialog::builder()
+            .title("Idiomas da verificação")
+            .content_width(420)
+            .build();
+
+        let group = adw::PreferencesGroup::builder()
+            .title("Verificação ortográfica")
+            .description("Dicionários instalados no sistema")
+            .build();
+
+        let available = config::available_dictionaries();
+        if available.is_empty() {
+            let row = adw::ActionRow::builder()
+                .title("Nenhum dicionário instalado")
+                .subtitle("Instale, por exemplo: sudo pacman -S hunspell-en_us")
+                .build();
+            group.add(&row);
+        } else {
+            for lang in &available {
+                let active = self.spell.borrow().iter().any(|l| l == lang);
+                let row = adw::SwitchRow::builder()
+                    .title(lang)
+                    .active(active)
+                    .build();
+                let ui = self.clone();
+                let lang = lang.clone();
+                row.connect_active_notify(move |r| {
+                    {
+                        let mut sel = ui.spell.borrow_mut();
+                        if r.is_active() {
+                            if !sel.iter().any(|l| *l == lang) {
+                                sel.push(lang.clone());
+                            }
+                        } else {
+                            sel.retain(|l| *l != lang);
+                        }
+                    }
+                    ui.apply_spell_languages();
+                });
+                group.add(&row);
+            }
+        }
+
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .margin_top(12)
+            .margin_bottom(18)
+            .margin_start(18)
+            .margin_end(18)
+            .build();
+        content.append(&group);
+
+        let header = adw::HeaderBar::new();
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&header);
+        toolbar.set_content(Some(&content));
+
+        dialog.set_child(Some(&toolbar));
+        dialog.present(Some(&self.window));
+    }
+
     /// Aplica silenciar/dessilenciar ao serviço atual (persiste).
     fn set_current_muted(&self, muted: bool) {
         let cur = self.state.borrow().current.clone();
@@ -457,6 +538,7 @@ fn primary_menu() -> gio::Menu {
 
     let dnd = gio::Menu::new();
     dnd.append(Some("Não perturbe"), Some("win.toggle-dnd"));
+    dnd.append(Some("Idiomas da verificação…"), Some("win.spell-languages"));
     menu.append_section(None, &dnd);
 
     let about = gio::Menu::new();
@@ -515,6 +597,13 @@ fn wire_actions(app: &adw::Application, ui: &Ui) {
                 a.set_state(v);
             }
         });
+        ui.window.add_action(&action);
+    }
+    // win.spell-languages (seletor de idiomas da ortografia)
+    {
+        let uic = ui.clone();
+        let action = gio::SimpleAction::new("spell-languages", None);
+        action.connect_activate(move |_, _| uic.show_spell_dialog());
         ui.window.add_action(&action);
     }
     // win.toggle-dnd (não perturbe global)

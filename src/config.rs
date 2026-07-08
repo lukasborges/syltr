@@ -102,6 +102,111 @@ pub fn make_id(existing: &[Service], base: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Configurações gerais (settings.json)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Settings {
+    /// idiomas ativos na verificação ortográfica (vazio = desligado)
+    #[serde(default)]
+    pub spell_languages: Vec<String>,
+}
+
+fn settings_file() -> PathBuf {
+    config_dir().join("settings.json")
+}
+
+pub fn load_settings() -> Settings {
+    if let Ok(text) = std::fs::read_to_string(settings_file()) {
+        if let Ok(s) = serde_json::from_str::<Settings>(&text) {
+            return s;
+        }
+    }
+    // Primeira execução: começa com todos os dicionários instalados.
+    let s = Settings {
+        spell_languages: default_spell_languages(),
+    };
+    save_settings(&s);
+    s
+}
+
+pub fn save_settings(settings: &Settings) {
+    let dir = config_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_string_pretty(settings) {
+        let _ = std::fs::write(settings_file(), json);
+    }
+}
+
+/// Códigos de idioma dos dicionários hunspell/myspell instalados no sistema.
+pub fn available_dictionaries() -> Vec<String> {
+    let dirs = [
+        "/usr/share/hunspell",
+        "/usr/share/myspell/dicts",
+        "/usr/local/share/hunspell",
+    ];
+    let mut langs: Vec<String> = Vec::new();
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("dic") {
+                if let Some(lang) = path.file_stem().and_then(|s| s.to_str()) {
+                    if !langs.iter().any(|l| l == lang) {
+                        langs.push(lang.to_string());
+                    }
+                }
+            }
+        }
+    }
+    langs
+}
+
+/// Dicionários instalados, ordenados com os idiomas do locale primeiro.
+pub fn default_spell_languages() -> Vec<String> {
+    let available = available_dictionaries();
+    let mut ordered: Vec<String> = Vec::new();
+    for lang in locale_languages() {
+        if available.iter().any(|a| *a == lang) && !ordered.contains(&lang) {
+            ordered.push(lang);
+        }
+    }
+    for lang in available {
+        if !ordered.contains(&lang) {
+            ordered.push(lang);
+        }
+    }
+    ordered
+}
+
+fn locale_languages() -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for var in ["LC_MESSAGES", "LANG", "LANGUAGE"] {
+        if let Ok(value) = std::env::var(var) {
+            for part in value.split(':') {
+                let lang = part
+                    .split('.')
+                    .next()
+                    .unwrap_or("")
+                    .split('@')
+                    .next()
+                    .unwrap_or("");
+                if !lang.is_empty()
+                    && lang != "C"
+                    && lang != "POSIX"
+                    && !out.iter().any(|l| l == lang)
+                {
+                    out.push(lang.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Normaliza uma URL digitada pelo usuário (adiciona https:// se faltar esquema).
 pub fn normalize_url(input: &str) -> String {
     let t = input.trim();
