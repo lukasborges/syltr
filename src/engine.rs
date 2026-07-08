@@ -93,10 +93,58 @@ const NOTIFY_PERMISSION_JS: &str = r#"
 })();
 "#;
 
-/// Idiomas para a verificação ortográfica, derivados do locale do sistema.
-/// Ex.: "pt_BR.UTF-8:en_US" -> ["pt_BR", "en_US"]. O enchant mapeia cada um
-/// para o dicionário hunspell instalado correspondente.
+/// Idiomas para a verificação ortográfica: os dicionários realmente instalados
+/// no sistema, ordenados com os do locale do usuário primeiro. Assim funciona
+/// com o que o usuário instalou (ex.: só pt_BR), mesmo que o locale seja outro.
 fn spell_languages() -> Vec<String> {
+    let available = available_dictionaries();
+    if available.is_empty() {
+        return Vec::new();
+    }
+    let mut ordered: Vec<String> = Vec::new();
+    // Preferidos do locale, se estiverem instalados.
+    for lang in locale_languages() {
+        if available.iter().any(|a| *a == lang) && !ordered.contains(&lang) {
+            ordered.push(lang);
+        }
+    }
+    // Depois, o restante dos dicionários instalados.
+    for lang in available {
+        if !ordered.contains(&lang) {
+            ordered.push(lang);
+        }
+    }
+    ordered
+}
+
+/// Códigos de idioma dos dicionários hunspell/myspell instalados no sistema.
+fn available_dictionaries() -> Vec<String> {
+    let dirs = [
+        "/usr/share/hunspell",
+        "/usr/share/myspell/dicts",
+        "/usr/local/share/hunspell",
+    ];
+    let mut langs: Vec<String> = Vec::new();
+    for dir in dirs {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("dic") {
+                if let Some(lang) = path.file_stem().and_then(|s| s.to_str()) {
+                    if !langs.iter().any(|l| l == lang) {
+                        langs.push(lang.to_string());
+                    }
+                }
+            }
+        }
+    }
+    langs
+}
+
+/// Idiomas do locale do usuário (ex.: "pt_BR.UTF-8:en_US" -> ["pt_BR", "en_US"]).
+fn locale_languages() -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for var in ["LC_MESSAGES", "LANG", "LANGUAGE"] {
         if let Ok(value) = std::env::var(var) {
