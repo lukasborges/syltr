@@ -7,6 +7,7 @@ use cef::rc::Rc as _;
 use cef::*;
 
 use super::browser_slot::BrowserSlot;
+use super::navigation;
 use super::prefs::apply_spell_prefs;
 
 wrap_life_span_handler! {
@@ -14,6 +15,7 @@ wrap_life_span_handler! {
         slot: Rc<BrowserSlot>,
         muted: bool,
         spell_langs: Vec<String>,
+        home: String,
     }
 
     impl LifeSpanHandler {
@@ -54,10 +56,13 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
-            // Cancel the new window and load the URL in the service's own view,
-            // so "Sign in with Google" and similar flows open in-place.
+            // A new window would open: an external link goes to the system
+            // browser, while an internal one (e.g. an SSO popup) loads in-place.
             if let Some(url) = target_url {
-                if let Some(frame) = frame {
+                let target = url.to_string();
+                if navigation::is_external(&target, &self.home) {
+                    navigation::open_external(&target);
+                } else if let Some(frame) = frame {
                     frame.load_url(Some(url));
                 } else if let Some(frame) = browser.and_then(|b| b.main_frame()) {
                     frame.load_url(Some(url));
@@ -69,7 +74,12 @@ wrap_life_span_handler! {
 }
 
 impl LifeSpanHandlerBuilder {
-    pub(crate) fn build(slot: Rc<BrowserSlot>, muted: bool, spell_langs: Vec<String>) -> LifeSpanHandler {
-        Self::new(slot, muted, spell_langs)
+    pub(crate) fn build(
+        slot: Rc<BrowserSlot>,
+        muted: bool,
+        spell_langs: Vec<String>,
+        home: String,
+    ) -> LifeSpanHandler {
+        Self::new(slot, muted, spell_langs, home)
     }
 }

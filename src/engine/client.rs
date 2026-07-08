@@ -11,8 +11,8 @@ use super::download::DownloadHandlerBuilder;
 use super::lifespan::LifeSpanHandlerBuilder;
 use super::permission::PermissionHandlerBuilder;
 use super::render::{RenderHandlerBuilder, RenderState};
+use super::request::ServiceRequestHandlerBuilder;
 use crate::icon::ServiceIcon;
-use crate::imgproxy::ImgRequestHandlerBuilder;
 
 wrap_client! {
     pub(crate) struct ClientBuilder {
@@ -59,15 +59,16 @@ impl ClientBuilder {
         muted: bool,
         spell_langs: Vec<String>,
         ctx: Option<RequestContext>,
+        home: String,
     ) -> Client {
         Self::new(
             RenderHandlerBuilder::build(state.clone()),
             DisplayHandlerBuilder::build(state.clone(), icon),
-            LifeSpanHandlerBuilder::build(slot, muted, spell_langs),
+            LifeSpanHandlerBuilder::build(slot, muted, spell_langs, home.clone()),
             PermissionHandlerBuilder::build(),
             ContextMenuHandlerBuilder::build(state),
             DownloadHandlerBuilder::build(),
-            ImgRequestHandlerBuilder::build(ctx),
+            ServiceRequestHandlerBuilder::build(home, ctx),
         )
     }
 }

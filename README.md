@@ -15,6 +15,7 @@ storage).
 - **Unread badges** on the icon (detected from the page title)
 - **Native desktop notifications** · **mute** per service · global **do not disturb**
 - **Spell checking** with the system dictionaries · **camera/mic/calls** toggle
+- **External links open in the default browser**; same-site and SSO navigations stay in-app
 - Isolated session per service (independent login for each)
 - Downloads saved straight to `~/Downloads` with a completion notification
 - Service list persisted in `~/.config/dev.syltr.Syltr/services.json`

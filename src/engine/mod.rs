@@ -12,9 +12,11 @@ mod context_menu;
 mod display;
 mod download;
 mod lifespan;
+mod navigation;
 mod permission;
 mod prefs;
 mod render;
+mod request;
 mod request_context;
 
 pub use bootstrap::{init_cef, shutdown_cef, start_pump};
@@ -97,6 +99,7 @@ impl ServiceView {
                 muted,
                 spell_langs.to_vec(),
                 context.clone(),
+                url.to_string(),
             )),
             Some(&CefString::from(url)),
             Some(&browser_settings),

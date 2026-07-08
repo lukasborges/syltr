@@ -14,6 +14,16 @@ mod fetch;
 
 use cef::*;
 
+/// Returns a resource handler for `url` when it hits the Chat redirect bug,
+/// or `None` to let the request proceed normally. Wired from the engine's
+/// request handler.
+pub fn resource_request_handler(
+    url: &str,
+    ctx: Option<RequestContext>,
+) -> Option<ResourceRequestHandler> {
+    should_intercept(url).then(|| ImgResourceRequestHandlerBuilder::build(ctx))
+}
+
 /// URLs whose `<img>` loading triggers the Chat redirect bug.
 fn should_intercept(url: &str) -> bool {
     url.contains("/api/get_attachment_url") || url.contains("/api/get_custom_emoji_image")
@@ -53,37 +63,6 @@ wrap_resource_request_handler! {
 
 impl ImgResourceRequestHandlerBuilder {
     fn build(ctx: Option<RequestContext>) -> ResourceRequestHandler {
-        Self::new(ctx)
-    }
-}
-
-wrap_request_handler! {
-    pub struct ImgRequestHandlerBuilder {
-        ctx: Option<RequestContext>,
-    }
-
-    impl RequestHandler {
-        #[allow(clippy::too_many_arguments)]
-        fn resource_request_handler(
-            &self,
-            _browser: Option<&mut Browser>,
-            _frame: Option<&mut Frame>,
-            request: Option<&mut Request>,
-            _is_navigation: ::std::os::raw::c_int,
-            _is_download: ::std::os::raw::c_int,
-            _request_initiator: Option<&CefString>,
-            _disable_default_handling: Option<&mut ::std::os::raw::c_int>,
-        ) -> Option<ResourceRequestHandler> {
-            let url = request
-                .map(|r| CefString::from(&r.url()).to_string())
-                .unwrap_or_default();
-            should_intercept(&url).then(|| ImgResourceRequestHandlerBuilder::build(self.ctx.clone()))
-        }
-    }
-}
-
-impl ImgRequestHandlerBuilder {
-    pub fn build(ctx: Option<RequestContext>) -> RequestHandler {
         Self::new(ctx)
     }
 }
