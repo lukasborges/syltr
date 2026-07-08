@@ -97,14 +97,17 @@ const COMPAT_JS: &str = r#"
   } catch (e) {}
   try {
     if (typeof window.requestIdleCallback !== 'function') {
-      window.requestIdleCallback = function (cb) {
-        var start = Date.now();
+      // Idle "de verdade": atraso ~50ms (respeita options.timeout) para não
+      // inundar o event loop quando o app reagenda idle callbacks em loop.
+      window.requestIdleCallback = function (cb, opts) {
+        var t = (opts && opts.timeout) ? Math.min(opts.timeout, 100) : 50;
         return setTimeout(function () {
+          var start = Date.now();
           cb({
             didTimeout: false,
-            timeRemaining: function () { return Math.max(0, 50 - (Date.now() - start)); },
+            timeRemaining: function () { return Math.max(0, 16 - (Date.now() - start)); },
           });
-        }, 1);
+        }, t);
       };
       window.cancelIdleCallback = function (id) { clearTimeout(id); };
     }
