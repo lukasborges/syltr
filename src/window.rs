@@ -309,7 +309,6 @@ impl Ui {
         // Seleciona o serviço clicado (as ações operam sobre o atual).
         self.select_index(index);
 
-        // Sincroniza o estado do item "Silenciar" com o serviço atual.
         let muted = self
             .state
             .borrow()
@@ -317,34 +316,87 @@ impl Ui {
             .get(index)
             .map(|s| s.muted)
             .unwrap_or(false);
-        if let Some(action) = self.window.lookup_action("mute") {
-            if let Ok(simple) = action.downcast::<gio::SimpleAction>() {
-                simple.set_state(&muted.to_variant());
-            }
-        }
 
-        let menu = gio::Menu::new();
-        let s1 = gio::Menu::new();
-        s1.append(Some(&gettext("Reload")), Some("win.reload"));
-        s1.append(Some(&gettext("Service home")), Some("win.home"));
-        menu.append_section(None, &s1);
-        let s2 = gio::Menu::new();
-        s2.append(Some(&gettext("Mute notifications")), Some("win.mute"));
-        menu.append_section(None, &s2);
-        let s3 = gio::Menu::new();
-        s3.append(Some(&gettext("Remove service")), Some("win.remove-service"));
-        menu.append_section(None, &s3);
-
-        // Ancora na janela (estável), NÃO na linha: remover o serviço
-        // reconstrói o rail e destruiria a linha, cancelando a ação.
+        // Popover com botões (chamam os métodos direto — sem depender de
+        // resolução de GAction, que não funcionava no menu-model sobre o CEF).
+        let popover = gtk::Popover::new();
+        popover.set_parent(&self.window);
+        popover.set_has_arrow(false);
+        popover.add_css_class("menu");
         let (wx, wy) = row
             .compute_point(&self.window, &gtk::graphene::Point::new(x as f32, y as f32))
             .map(|p| (p.x() as f64, p.y() as f64))
             .unwrap_or((x, y));
-        let popover = gtk::PopoverMenu::from_model(Some(&menu));
-        popover.set_parent(&self.window);
-        popover.set_has_arrow(false);
         popover.set_pointing_to(Some(&gdk::Rectangle::new(wx as i32, wy as i32, 1, 1)));
+
+        let bx = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .width_request(200)
+            .build();
+
+        let item = |label: &str| {
+            let b = gtk::Button::with_label(label);
+            b.add_css_class("flat");
+            if let Some(lbl) = b.child().and_downcast::<gtk::Label>() {
+                lbl.set_xalign(0.0);
+            }
+            b
+        };
+
+        let reload = item(&gettext("Reload"));
+        {
+            let ui = self.clone();
+            let pop = popover.clone();
+            reload.connect_clicked(move |_| {
+                pop.popdown();
+                if let Some(v) = ui.current_view() {
+                    v.reload();
+                }
+            });
+        }
+        let home = item(&gettext("Service home"));
+        {
+            let ui = self.clone();
+            let pop = popover.clone();
+            home.connect_clicked(move |_| {
+                pop.popdown();
+                if let Some(v) = ui.current_view() {
+                    v.go_home();
+                }
+            });
+        }
+        let mute_label = if muted {
+            gettext("Unmute notifications")
+        } else {
+            gettext("Mute notifications")
+        };
+        let mute = item(&mute_label);
+        {
+            let ui = self.clone();
+            let pop = popover.clone();
+            mute.connect_clicked(move |_| {
+                pop.popdown();
+                ui.set_current_muted(!muted);
+            });
+        }
+        let remove = item(&gettext("Remove service"));
+        {
+            let ui = self.clone();
+            let pop = popover.clone();
+            remove.connect_clicked(move |_| {
+                pop.popdown();
+                ui.remove_current();
+            });
+        }
+
+        bx.append(&reload);
+        bx.append(&home);
+        bx.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        bx.append(&mute);
+        bx.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        bx.append(&remove);
+
+        popover.set_child(Some(&bx));
         popover.connect_closed(|p| p.unparent());
         popover.popup();
     }

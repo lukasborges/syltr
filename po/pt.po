@@ -47,6 +47,9 @@ msgstr "Sair"
 msgid "Mute notifications"
 msgstr "Silenciar notificações"
 
+msgid "Unmute notifications"
+msgstr "Reativar notificações"
+
 msgid "Remove service"
 msgstr "Remover serviço"
 
