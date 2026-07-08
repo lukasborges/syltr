@@ -32,6 +32,9 @@ msgstr "Remover serviço atual"
 msgid "Do not disturb"
 msgstr "Não perturbe"
 
+msgid "Camera, mic & calls"
+msgstr "Câmera, mic e chamadas"
+
 msgid "Spell-check languages…"
 msgstr "Idiomas da verificação…"
 

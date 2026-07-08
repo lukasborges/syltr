@@ -111,6 +111,10 @@ pub struct Settings {
     /// idiomas ativos na verificação ortográfica (vazio = desligado)
     #[serde(default)]
     pub spell_languages: Vec<String>,
+    /// captura de mídia/WebRTC (câmera, mic, chamadas). Off por padrão porque
+    /// dispara um crash do PipeWire em alguns sistemas.
+    #[serde(default)]
+    pub media_enabled: bool,
 }
 
 fn settings_file() -> PathBuf {
@@ -126,6 +130,7 @@ pub fn load_settings() -> Settings {
     // Primeira execução: começa com todos os dicionários instalados.
     let s = Settings {
         spell_languages: default_spell_languages(),
+        media_enabled: false,
     };
     save_settings(&s);
     s

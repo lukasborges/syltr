@@ -209,6 +209,7 @@ impl ServiceView {
         dnd: Rc<Cell<bool>>,
         muted: bool,
         spell_langs: &[String],
+        media_enabled: bool,
     ) -> Self {
         let data = session_dir.join("data");
         let cache = session_dir.join("cache");
@@ -241,12 +242,11 @@ impl ServiceView {
         settings.set_hardware_acceleration_policy(
             webkit6::HardwareAccelerationPolicy::Never,
         );
-        // Desliga captura de mídia/WebRTC: é o que faz o WebKit iniciar o
-        // monitor de dispositivos (GStreamer/PipeWire), que segfaulta neste
-        // sistema. Sem isso, o Teams crasha o processo web ao interagir.
-        // (Chat e reprodução de áudio/vídeo seguem funcionando.)
-        settings.set_enable_media_stream(false);
-        settings.set_enable_webrtc(false);
+        // Captura de mídia/WebRTC (câmera, mic, chamadas). Off por padrão: é o
+        // que faz o WebKit iniciar o monitor de dispositivos (GStreamer/
+        // PipeWire), que segfaulta em alguns sistemas. Ligável pelo menu.
+        settings.set_enable_media_stream(media_enabled);
+        settings.set_enable_webrtc(media_enabled);
         // Alguns serviços checam a UA; a padrão do WebKit já funciona na maioria.
         enable_runtime_features(&settings);
 
@@ -414,6 +414,15 @@ impl ServiceView {
     /// Atualiza os idiomas da verificação ortográfica (lista vazia desliga).
     pub fn set_spell_languages(&self, langs: &[String]) {
         apply_spell(&self.webview, langs);
+    }
+
+    /// Liga/desliga captura de mídia/WebRTC e recarrega para aplicar.
+    pub fn set_media_enabled(&self, enabled: bool) {
+        if let Some(settings) = webkit6::prelude::WebViewExt::settings(&self.webview) {
+            settings.set_enable_media_stream(enabled);
+            settings.set_enable_webrtc(enabled);
+        }
+        self.webview.reload();
     }
 
     /// Widget a ser inserido no `gtk::Stack` da janela.

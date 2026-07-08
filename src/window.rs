@@ -34,6 +34,8 @@ struct Ui {
     dnd: Rc<Cell<bool>>,
     /// idiomas ativos da verificação ortográfica
     spell: Rc<RefCell<Vec<String>>>,
+    /// captura de mídia/WebRTC habilitada (câmera, mic, chamadas)
+    media: Rc<Cell<bool>>,
     state: Rc<RefCell<State>>,
 }
 
@@ -45,6 +47,7 @@ pub fn build(app: &adw::Application) {
     }
 
     let services = config::load();
+    let settings = config::load_settings();
     let state = Rc::new(RefCell::new(State {
         services,
         views: HashMap::new(),
@@ -137,7 +140,8 @@ pub fn build(app: &adw::Application) {
         title,
         app: app.clone(),
         dnd: Rc::new(Cell::new(false)),
-        spell: Rc::new(RefCell::new(config::load_settings().spell_languages)),
+        spell: Rc::new(RefCell::new(settings.spell_languages.clone())),
+        media: Rc::new(Cell::new(settings.media_enabled)),
         state,
     };
 
@@ -174,6 +178,7 @@ impl Ui {
             self.dnd.clone(),
             svc.muted,
             &self.spell.borrow(),
+            self.media.get(),
         );
         self.stack.add_named(view.widget(), Some(&svc.id));
         self.state
@@ -343,6 +348,14 @@ impl Ui {
         popover.popup();
     }
 
+    /// Persiste as configurações (ortografia + mídia) num só lugar.
+    fn persist_settings(&self) {
+        config::save_settings(&config::Settings {
+            spell_languages: self.spell.borrow().clone(),
+            media_enabled: self.media.get(),
+        });
+    }
+
     /// Aplica os idiomas de ortografia atuais a todos os serviços e persiste.
     fn apply_spell_languages(&self) {
         let langs = self.spell.borrow().clone();
@@ -352,9 +365,19 @@ impl Ui {
                 view.set_spell_languages(&langs);
             }
         }
-        config::save_settings(&config::Settings {
-            spell_languages: langs,
-        });
+        self.persist_settings();
+    }
+
+    /// Liga/desliga captura de mídia/WebRTC em todos os serviços (persiste).
+    fn set_media_enabled(&self, enabled: bool) {
+        self.media.set(enabled);
+        {
+            let st = self.state.borrow();
+            for view in st.views.values() {
+                view.set_media_enabled(enabled);
+            }
+        }
+        self.persist_settings();
     }
 
     /// Diálogo para escolher os idiomas da verificação ortográfica.
@@ -539,6 +562,7 @@ fn primary_menu() -> gio::Menu {
 
     let dnd = gio::Menu::new();
     dnd.append(Some(&gettext("Do not disturb")), Some("win.toggle-dnd"));
+    dnd.append(Some(&gettext("Camera, mic & calls")), Some("win.toggle-media"));
     dnd.append(Some(&gettext("Spell-check languages…")), Some("win.spell-languages"));
     menu.append_section(None, &dnd);
 
@@ -614,6 +638,22 @@ fn wire_actions(app: &adw::Application, ui: &Ui) {
         action.connect_change_state(move |a, value| {
             if let Some(v) = value {
                 uic.dnd.set(v.get().unwrap_or(false));
+                a.set_state(v);
+            }
+        });
+        ui.window.add_action(&action);
+    }
+    // win.toggle-media (câmera/mic/chamadas; off por padrão)
+    {
+        let uic = ui.clone();
+        let action = gio::SimpleAction::new_stateful(
+            "toggle-media",
+            None,
+            &ui.media.get().to_variant(),
+        );
+        action.connect_change_state(move |a, value| {
+            if let Some(v) = value {
+                uic.set_media_enabled(v.get().unwrap_or(false));
                 a.set_state(v);
             }
         });
