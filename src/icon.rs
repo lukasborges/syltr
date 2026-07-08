@@ -14,7 +14,6 @@ const TILE: i32 = 40;
 const RADIUS: f64 = 11.0;
 /// Opacity of the neutral tile (over the theme's text color).
 const TILE_ALPHA: f64 = 0.10;
-/// Favicon count above which the badge shows "99+".
 const BADGE_MAX: u32 = 99;
 
 #[derive(Clone)]
@@ -87,7 +86,6 @@ impl ServiceIcon {
     }
 }
 
-/// Neutral tile: the theme's text color at low opacity.
 fn build_tile_background() -> gtk::DrawingArea {
     let background = gtk::DrawingArea::new();
     background.set_content_width(TILE);
@@ -123,7 +121,6 @@ fn build_favicon_image() -> gtk::Image {
     image
 }
 
-/// Unread badge, in the top-right corner.
 fn build_unread_badge() -> gtk::Label {
     let badge = gtk::Label::new(None);
     badge.add_css_class("unread-badge");

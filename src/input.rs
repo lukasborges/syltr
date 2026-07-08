@@ -45,10 +45,6 @@ pub fn attach(area: &gtk::DrawingArea, slot: Rc<BrowserSlot>) {
     attach_focus(area, &slot, &im);
 }
 
-// ---------------------------------------------------------------------------
-// GTK -> CEF event translation
-// ---------------------------------------------------------------------------
-
 fn mods(state: gdk::ModifierType) -> u32 {
     let mut m = 0;
     if state.contains(gdk::ModifierType::SHIFT_MASK) {
@@ -148,10 +144,6 @@ fn win_key_code(k: gdk::Key) -> i32 {
         0
     }
 }
-
-// ---------------------------------------------------------------------------
-// Controllers
-// ---------------------------------------------------------------------------
 
 fn attach_motion(
     area: &gtk::DrawingArea,
