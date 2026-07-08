@@ -13,7 +13,7 @@
 
 pkgname=syltr
 pkgver=0.1.0
-pkgrel=6
+pkgrel=7
 pkgdesc="Agregador de serviços de mensagens — Chromium/CEF + GTK4"
 arch=('x86_64')
 url="https://github.com/lucasborges/syltr"
@@ -26,7 +26,7 @@ depends=(
   'libxrandr' 'libxkbcommon' 'libxtst' 'libxfixes'
   'hicolor-icon-theme'
 )
-makedepends=('rust' 'cargo' 'git' 'gettext' 'clang')
+makedepends=('rust' 'cargo' 'git' 'gettext' 'clang' 'glib2')
 options=('strip' '!debug' '!lto')
 source=("$pkgname::git+file:///home/lucasborges/Projects/Syltr#branch=cef-spike")
 sha256sums=('SKIP')
