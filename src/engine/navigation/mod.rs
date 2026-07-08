@@ -35,6 +35,14 @@ const AUTH_PATH_FRAGMENTS: &[&str] = &[
     "/sso/",
 ];
 
+/// The URL to open in the system browser for a navigation to `target`, or
+/// `None` to keep it in-app. Unwraps link redirectors (e.g. Google's
+/// `google.com/url?q=…`) so the real destination is judged and opened.
+pub(crate) fn external_target(target: &str, home: &str, current: Option<&str>) -> Option<String> {
+    let dest = unwrap_redirect(target).unwrap_or_else(|| target.to_string());
+    should_open_externally(&dest, home, current).then_some(dest)
+}
+
 /// Whether `target` should open in the system browser rather than in the app.
 /// `home` is the service's URL and `current` is the page currently loaded in the
 /// frame (both keep their site in-app, so multi-step auth flows on a corporate
@@ -98,6 +106,54 @@ fn registrable_domain(host: &str) -> &str {
     match host.rmatch_indices('.').nth(1) {
         Some((i, _)) => &host[i + 1..],
         None => host,
+    }
+}
+
+/// Unwraps a link redirector to its real destination. Google wraps external
+/// links clicked in Chat/Gmail/Docs as `google.com/url?q=<target>`, which is
+/// same-site and then 302s away — so we resolve the target up front.
+fn unwrap_redirect(url: &str) -> Option<String> {
+    let host = host_of(url)?;
+    if registrable_domain(&host) != "google.com" || !url.contains("/url?") {
+        return None;
+    }
+    let target = query_param(url, "q").or_else(|| query_param(url, "url"))?;
+    is_web_url(&target).then_some(target)
+}
+
+/// Value of query parameter `key`, percent-decoded.
+fn query_param(url: &str, key: &str) -> Option<String> {
+    let query = url.split_once('?')?.1;
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        (k == key).then(|| percent_decode(v))
+    })
+}
+
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(hi), Some(lo)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2])) {
+                out.push(hi * 16 + lo);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
     }
 }
 

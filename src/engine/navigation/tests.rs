@@ -1,4 +1,4 @@
-use super::should_open_externally;
+use super::{external_target, should_open_externally};
 
 const WHATSAPP: &str = "https://web.whatsapp.com/";
 
@@ -54,4 +54,35 @@ fn corporate_sso_on_arbitrary_domain_stays_in_app() {
 fn non_web_schemes_are_external() {
     assert!(external("mailto:someone@example.com"));
     assert!(external("tel:+15551234"));
+}
+
+const CHAT: &str = "https://chat.google.com/";
+
+#[test]
+fn google_url_wrapper_unwraps_to_the_real_external_target() {
+    // A link clicked in Google Chat: google.com/url?q=<encoded external url>.
+    let wrapped = "https://www.google.com/url?q=https%3A%2F%2Fgitlab.example.com%2Fgroup%2Fproject%2F-%2Fmerge_requests%2F649&sa=D&source=hangouts";
+    assert_eq!(
+        external_target(wrapped, CHAT, Some(CHAT)).as_deref(),
+        Some("https://gitlab.example.com/group/project/-/merge_requests/649"),
+    );
+}
+
+#[test]
+fn google_url_wrapper_of_an_internal_link_stays_in_app() {
+    let wrapped = "https://www.google.com/url?q=https%3A%2F%2Fchat.google.com%2Froom%2Fx&sa=D";
+    assert_eq!(external_target(wrapped, CHAT, Some(CHAT)), None);
+}
+
+#[test]
+fn direct_external_link_returns_itself() {
+    assert_eq!(
+        external_target("https://gitlab.example.com/x", CHAT, Some(CHAT)).as_deref(),
+        Some("https://gitlab.example.com/x"),
+    );
+}
+
+#[test]
+fn internal_navigation_returns_none() {
+    assert_eq!(external_target("https://chat.google.com/dm/y", CHAT, Some(CHAT)), None);
 }

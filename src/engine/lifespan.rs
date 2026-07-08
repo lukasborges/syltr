@@ -63,8 +63,12 @@ wrap_life_span_handler! {
                 let current = frame
                     .as_deref()
                     .map(|f| CefString::from(&f.url()).to_string());
-                if navigation::should_open_externally(&target, &self.home, current.as_deref()) {
-                    navigation::open_external(&target);
+                let dest = navigation::external_target(&target, &self.home, current.as_deref());
+                if std::env::var_os("SYLTR_DEBUG").is_some() {
+                    eprintln!("[syltr] popup url={target} -> {}", dest.as_deref().unwrap_or("in-app"));
+                }
+                if let Some(dest) = dest {
+                    navigation::open_external(&dest);
                 } else if let Some(frame) = frame {
                     frame.load_url(Some(url));
                 } else if let Some(frame) = browser.and_then(|b| b.main_frame()) {

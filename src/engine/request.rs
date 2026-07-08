@@ -35,8 +35,15 @@ wrap_request_handler! {
                 .map(|f| CefString::from(&f.url()).to_string());
             let Some(request) = request else { return 0 };
             let url = CefString::from(&request.url()).to_string();
-            if navigation::should_open_externally(&url, &self.home, current.as_deref()) {
-                navigation::open_external(&url);
+            let dest = navigation::external_target(&url, &self.home, current.as_deref());
+            if std::env::var_os("SYLTR_DEBUG").is_some() {
+                eprintln!(
+                    "[syltr] browse url={url} gesture={user_gesture} redirect={is_redirect} -> {}",
+                    dest.as_deref().unwrap_or("in-app"),
+                );
+            }
+            if let Some(dest) = dest {
+                navigation::open_external(&dest);
                 return 1; // cancel the in-app navigation
             }
             0
