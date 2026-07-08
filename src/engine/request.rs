@@ -27,14 +27,15 @@ wrap_request_handler! {
                 return 0;
             }
             // Ignore iframes; only the top-level document leaves.
-            if let Some(frame) = frame {
-                if frame.is_main() != 1 {
-                    return 0;
-                }
+            if frame.as_deref().is_some_and(|f| f.is_main() != 1) {
+                return 0;
             }
+            let current = frame
+                .as_deref()
+                .map(|f| CefString::from(&f.url()).to_string());
             let Some(request) = request else { return 0 };
             let url = CefString::from(&request.url()).to_string();
-            if navigation::is_external(&url, &self.home) {
+            if navigation::should_open_externally(&url, &self.home, current.as_deref()) {
                 navigation::open_external(&url);
                 return 1; // cancel the in-app navigation
             }

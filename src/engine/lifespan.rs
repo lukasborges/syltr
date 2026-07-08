@@ -60,7 +60,10 @@ wrap_life_span_handler! {
             // browser, while an internal one (e.g. an SSO popup) loads in-place.
             if let Some(url) = target_url {
                 let target = url.to_string();
-                if navigation::is_external(&target, &self.home) {
+                let current = frame
+                    .as_deref()
+                    .map(|f| CefString::from(&f.url()).to_string());
+                if navigation::should_open_externally(&target, &self.home, current.as_deref()) {
                     navigation::open_external(&target);
                 } else if let Some(frame) = frame {
                     frame.load_url(Some(url));
