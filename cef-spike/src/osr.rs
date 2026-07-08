@@ -9,9 +9,9 @@
 use std::cell::{Cell, RefCell};
 
 use cef::{
-    rc::Rc, BrowserProcessHandler, ImplBrowserProcessHandler, ImplRenderHandler,
-    ImplRequestContextHandler, RenderHandler, RequestContextHandler, WrapBrowserProcessHandler,
-    WrapRenderHandler, WrapRequestContextHandler, *,
+    rc::Rc, BrowserProcessHandler, DisplayHandler, ImplBrowserProcessHandler, ImplDisplayHandler,
+    ImplRenderHandler, ImplRequestContextHandler, RenderHandler, RequestContextHandler,
+    WrapBrowserProcessHandler, WrapDisplayHandler, WrapRenderHandler, WrapRequestContextHandler, *,
 };
 use gtk::cairo;
 use gtk::prelude::*;
@@ -27,6 +27,13 @@ thread_local! {
     static FRAME: RefCell<Option<Frame>> = const { RefCell::new(None) };
     /// Tamanho lógico da view (w, h) e fator de escala — lidos por view_rect/screen_info.
     static VIEW: Cell<(i32, i32, f32)> = const { Cell::new((1000, 720, 1.0)) };
+    /// DrawingArea alvo (para trocar o cursor em on_cursor_change).
+    static AREA: RefCell<Option<gtk::DrawingArea>> = const { RefCell::new(None) };
+}
+
+/// Registra o DrawingArea que recebe as trocas de cursor.
+pub fn set_area(area: &gtk::DrawingArea) {
+    AREA.with_borrow_mut(|a| *a = Some(area.clone()));
 }
 
 /// Atualiza o tamanho da view (chamado no resize do widget GTK).
@@ -210,18 +217,117 @@ impl RenderHandlerBuilder {
 wrap_client! {
     pub struct ClientBuilder {
         render_handler: RenderHandler,
+        display_handler: DisplayHandler,
     }
 
     impl Client {
         fn render_handler(&self) -> Option<RenderHandler> {
             Some(self.render_handler.clone())
         }
+        fn display_handler(&self) -> Option<DisplayHandler> {
+            Some(self.display_handler.clone())
+        }
     }
 }
 
 impl ClientBuilder {
     pub fn build(handler: SyltrRenderHandler) -> Client {
-        Self::new(RenderHandlerBuilder::build(handler))
+        Self::new(
+            RenderHandlerBuilder::build(handler),
+            DisplayHandlerBuilder::build(SyltrDisplayHandler {}),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DisplayHandler (troca de cursor)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+pub struct SyltrDisplayHandler {}
+
+wrap_display_handler! {
+    pub struct DisplayHandlerBuilder {
+        handler: SyltrDisplayHandler,
+    }
+
+    impl DisplayHandler {
+        fn on_cursor_change(
+            &self,
+            _browser: Option<&mut Browser>,
+            _cursor: ::std::os::raw::c_ulong,
+            type_: CursorType,
+            _custom_cursor_info: Option<&CursorInfo>,
+        ) -> ::std::os::raw::c_int {
+            let name = cursor_name(type_);
+            AREA.with_borrow(|a| {
+                if let Some(area) = a {
+                    area.set_cursor_from_name(Some(name));
+                }
+            });
+            1
+        }
+    }
+}
+
+impl DisplayHandlerBuilder {
+    pub fn build(handler: SyltrDisplayHandler) -> DisplayHandler {
+        Self::new(handler)
+    }
+}
+
+/// Mapeia o tipo de cursor do CEF para um nome de cursor CSS/GDK.
+fn cursor_name(t: CursorType) -> &'static str {
+    if t == CursorType::HAND {
+        "pointer"
+    } else if t == CursorType::IBEAM {
+        "text"
+    } else if t == CursorType::CROSS {
+        "crosshair"
+    } else if t == CursorType::WAIT {
+        "wait"
+    } else if t == CursorType::HELP {
+        "help"
+    } else if t == CursorType::MOVE {
+        "move"
+    } else if t == CursorType::PROGRESS {
+        "progress"
+    } else if t == CursorType::NOTALLOWED {
+        "not-allowed"
+    } else if t == CursorType::NODROP {
+        "no-drop"
+    } else if t == CursorType::COPY {
+        "copy"
+    } else if t == CursorType::CONTEXTMENU {
+        "context-menu"
+    } else if t == CursorType::CELL {
+        "cell"
+    } else if t == CursorType::COLUMNRESIZE {
+        "col-resize"
+    } else if t == CursorType::ROWRESIZE {
+        "row-resize"
+    } else if t == CursorType::EASTWESTRESIZE {
+        "ew-resize"
+    } else if t == CursorType::NORTHSOUTHRESIZE {
+        "ns-resize"
+    } else if t == CursorType::NORTHEASTSOUTHWESTRESIZE {
+        "nesw-resize"
+    } else if t == CursorType::NORTHWESTSOUTHEASTRESIZE {
+        "nwse-resize"
+    } else if t == CursorType::EASTRESIZE {
+        "e-resize"
+    } else if t == CursorType::WESTRESIZE {
+        "w-resize"
+    } else if t == CursorType::NORTHRESIZE {
+        "n-resize"
+    } else if t == CursorType::SOUTHRESIZE {
+        "s-resize"
+    } else if t == CursorType::ZOOMIN {
+        "zoom-in"
+    } else if t == CursorType::NONE {
+        "none"
+    } else {
+        "default"
     }
 }
 

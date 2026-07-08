@@ -1,6 +1,7 @@
 //! Fase A do spike: CEF (Chromium) renderizando offscreen dentro de uma
 //! janela GTK4, via Cairo. Prova a integração antes de reescrever o engine.rs.
 
+mod input;
 mod osr;
 
 use std::process::ExitCode;
@@ -52,6 +53,7 @@ fn main() -> ExitCode {
 
     let area = gtk::DrawingArea::builder().hexpand(true).vexpand(true).build();
     area.set_draw_func(|_, cr, w, h| osr::draw(cr, w, h));
+    osr::set_area(&area);
 
     let window = gtk::Window::builder()
         .title("Syltr — CEF spike (offscreen)")
@@ -83,14 +85,17 @@ fn main() -> ExitCode {
     )
     .expect("falha ao criar o browser CEF");
 
+    let host = browser.host().expect("browser host");
+
+    // Fase B: input (mouse/scroll/teclado/foco).
+    input::attach(&area, host.clone());
+
     // Redimensionamento: informa o CEF do novo tamanho da view.
     {
-        let host = browser.host();
+        let host = host.clone();
         area.connect_resize(move |_, w, h| {
             osr::set_view_size(w, h);
-            if let Some(host) = &host {
-                host.was_resized();
-            }
+            host.was_resized();
         });
     }
 
