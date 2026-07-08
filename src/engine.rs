@@ -11,12 +11,12 @@ use std::rc::Rc;
 
 use cef::{
     args::Args, rc::Rc as _, App, Browser, BrowserHost, BrowserProcessHandler, BrowserSettings,
-    Client, CommandLine, CursorInfo, CursorType, DisplayHandler, ImplBrowser, ImplBrowserHost,
-    ImplFrame, LifeSpanHandler, RenderHandler, RequestContextHandler, RequestContextSettings,
-    Settings, WindowInfo, *,
+    Client, CommandLine, CursorInfo, CursorType, DisplayHandler, DownloadImageCallback,
+    ImplBinaryValue, ImplBrowser, ImplBrowserHost, ImplFrame, ImplImage, LifeSpanHandler,
+    RenderHandler, RequestContextHandler, RequestContextSettings, Settings, WindowInfo, *,
 };
-use gtk::cairo;
 use gtk::prelude::*;
+use gtk::{cairo, gdk, glib};
 
 use crate::icon::ServiceIcon;
 use crate::input;
@@ -299,6 +299,57 @@ wrap_display_handler! {
                 self.icon.set_badge(unread_from_title(&title.to_string()));
             }
         }
+
+        fn on_favicon_urlchange(
+            &self,
+            browser: Option<&mut Browser>,
+            icon_urls: Option<&mut CefStringList>,
+        ) {
+            let (Some(browser), Some(urls)) = (browser, icon_urls) else { return };
+            let Some(host) = browser.host() else { return };
+            let list = std::mem::take(urls);
+            let Some(url) = list.into_iter().next() else { return };
+            let mut callback = FaviconCallbackBuilder::build(self.icon.clone());
+            host.download_image(
+                Some(&CefString::from(url.as_str())),
+                1,  // is_favicon
+                64, // max_image_size
+                0,  // bypass_cache
+                Some(&mut callback),
+            );
+        }
+    }
+}
+
+wrap_download_image_callback! {
+    struct FaviconCallbackBuilder {
+        icon: ServiceIcon,
+    }
+
+    impl DownloadImageCallback {
+        fn on_download_image_finished(
+            &self,
+            _image_url: Option<&CefString>,
+            _http_status_code: ::std::os::raw::c_int,
+            image: Option<&mut cef::Image>,
+        ) {
+            let Some(image) = image else { return };
+            let Some(png) = image.as_png(1.0, 1, None, None) else { return };
+            let size = png.size();
+            if size == 0 {
+                return;
+            }
+            let bytes = unsafe { std::slice::from_raw_parts(png.raw_data() as *const u8, size) };
+            if let Ok(texture) = gdk::Texture::from_bytes(&glib::Bytes::from(bytes)) {
+                self.icon.set_favicon(Some(&texture));
+            }
+        }
+    }
+}
+
+impl FaviconCallbackBuilder {
+    fn build(icon: ServiceIcon) -> DownloadImageCallback {
+        Self::new(icon)
     }
 }
 
