@@ -51,3 +51,8 @@ Cargo.lock.bak
 
 # CEF spike build (libcef ~1.3GB)
 cef-spike/target/
+
+# makepkg artifacts
+packaging/src/
+packaging/pkg/
+packaging/*.pkg.tar.zst
