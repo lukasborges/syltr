@@ -59,16 +59,15 @@ impl ClientBuilder {
         muted: bool,
         spell_langs: Vec<String>,
         ctx: Option<RequestContext>,
-        home: String,
     ) -> Client {
         Self::new(
             RenderHandlerBuilder::build(state.clone()),
             DisplayHandlerBuilder::build(state.clone(), icon),
-            LifeSpanHandlerBuilder::build(slot, muted, spell_langs, home.clone()),
+            LifeSpanHandlerBuilder::build(slot, muted, spell_langs),
             PermissionHandlerBuilder::build(),
             ContextMenuHandlerBuilder::build(state),
             DownloadHandlerBuilder::build(),
-            ServiceRequestHandlerBuilder::build(home, ctx),
+            ServiceRequestHandlerBuilder::build(ctx),
         )
     }
 }

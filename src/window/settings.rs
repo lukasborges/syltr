@@ -1,4 +1,4 @@
-//! Notification (mute/DND) and preference (spell-check, media) toggles.
+//! Notification (mute/DND) and preference (spell-check) toggles.
 
 use super::Ui;
 use crate::config;
@@ -7,7 +7,6 @@ impl Ui {
     fn persist_settings(&self) {
         config::save_settings(&config::Settings {
             spell_languages: self.spell.borrow().clone(),
-            media_enabled: self.media.get(),
         });
     }
 
@@ -18,17 +17,6 @@ impl Ui {
             let st = self.state.borrow();
             for view in st.views.values() {
                 view.set_spell_languages(&langs);
-            }
-        }
-        self.persist_settings();
-    }
-
-    pub(super) fn set_media_enabled(&self, enabled: bool) {
-        self.media.set(enabled);
-        {
-            let st = self.state.borrow();
-            for view in st.views.values() {
-                view.set_media_enabled(enabled);
             }
         }
         self.persist_settings();

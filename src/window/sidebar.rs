@@ -25,7 +25,6 @@ impl Ui {
             self.dnd.clone(),
             svc.muted,
             &self.spell.borrow(),
-            self.media.get(),
         );
         self.stack.add_named(view.widget(), Some(&svc.id));
         self.state

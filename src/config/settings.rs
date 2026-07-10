@@ -11,10 +11,6 @@ pub struct Settings {
     /// Languages enabled in the spell checker (empty = disabled).
     #[serde(default)]
     pub spell_languages: Vec<String>,
-    /// Media/WebRTC capture (camera, mic, calls). Off by default because it
-    /// triggers a PipeWire crash on some systems.
-    #[serde(default)]
-    pub media_enabled: bool,
 }
 
 fn settings_file() -> PathBuf {
@@ -30,7 +26,6 @@ pub fn load_settings() -> Settings {
     // First run: start with every installed dictionary enabled.
     let settings = Settings {
         spell_languages: spellcheck::default_languages(),
-        media_enabled: false,
     };
     save_settings(&settings);
     settings

@@ -12,7 +12,6 @@ mod context_menu;
 mod display;
 mod download;
 mod lifespan;
-mod navigation;
 mod permission;
 mod prefs;
 mod render;
@@ -63,7 +62,6 @@ impl ServiceView {
         _dnd: Rc<Cell<bool>>,
         muted: bool,
         spell_langs: &[String],
-        _media_enabled: bool,
     ) -> Self {
         let area = gtk::DrawingArea::builder().hexpand(true).vexpand(true).build();
         let state = RenderState::new(area.clone());
@@ -99,7 +97,6 @@ impl ServiceView {
                 muted,
                 spell_langs.to_vec(),
                 context.clone(),
-                url.to_string(),
             )),
             Some(&CefString::from(url)),
             Some(&browser_settings),
@@ -156,6 +153,24 @@ impl ServiceView {
         }
     }
 
+    /// Navigates back in the service's history, if possible.
+    pub fn go_back(&self) {
+        if let Some(browser) = self.slot.browser() {
+            if browser.can_go_back() != 0 {
+                browser.go_back();
+            }
+        }
+    }
+
+    /// Navigates forward in the service's history, if possible.
+    pub fn go_forward(&self) {
+        if let Some(browser) = self.slot.browser() {
+            if browser.can_go_forward() != 0 {
+                browser.go_forward();
+            }
+        }
+    }
+
     pub fn go_home(&self) {
         if let Some(frame) = self.slot.main_frame() {
             frame.load_url(Some(&CefString::from(self.home.as_str())));
@@ -167,9 +182,6 @@ impl ServiceView {
             apply_spell_prefs(ctx, langs);
         }
     }
-
-    /// Media/calls work natively in Chromium, so this is a no-op.
-    pub fn set_media_enabled(&self, _enabled: bool) {}
 }
 
 /// Creates a request context with an isolated session/cache under `session_dir`

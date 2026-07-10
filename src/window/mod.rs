@@ -50,8 +50,6 @@ struct Ui {
     dnd: Rc<Cell<bool>>,
     /// Active spell-check languages.
     spell: Rc<RefCell<Vec<String>>>,
-    /// Media/WebRTC capture enabled (camera, mic, calls).
-    media: Rc<Cell<bool>>,
     state: Rc<RefCell<State>>,
 }
 
@@ -112,7 +110,6 @@ pub fn build(app: &adw::Application) {
         app: app.clone(),
         dnd: Rc::new(Cell::new(false)),
         spell: Rc::new(RefCell::new(settings.spell_languages.clone())),
-        media: Rc::new(Cell::new(settings.media_enabled)),
         state,
     };
 

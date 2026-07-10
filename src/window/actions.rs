@@ -13,6 +13,16 @@ pub(super) fn wire_actions(app: &adw::Application, ui: &Ui) {
             view.reload();
         }
     });
+    add_action(ui, "back", |ui| {
+        if let Some(view) = ui.current_view() {
+            view.go_back();
+        }
+    });
+    add_action(ui, "forward", |ui| {
+        if let Some(view) = ui.current_view() {
+            view.go_forward();
+        }
+    });
     add_action(ui, "home", |ui| {
         if let Some(view) = ui.current_view() {
             view.go_home();
@@ -26,7 +36,6 @@ pub(super) fn wire_actions(app: &adw::Application, ui: &Ui) {
         ui.dnd.set(on);
         ui.apply_all_notifications();
     });
-    add_toggle_action(ui, "toggle-media", ui.media.get(), |ui, on| ui.set_media_enabled(on));
 
     for i in 1usize..=9 {
         add_action(ui, &format!("goto{i}"), move |ui| ui.select_index(i - 1));
@@ -51,6 +60,8 @@ pub(super) fn wire_actions(app: &adw::Application, ui: &Ui) {
         app.set_accels_for_action("app.quit", &["<Primary>q"]);
     }
     app.set_accels_for_action("win.reload", &["<Primary>r", "F5"]);
+    app.set_accels_for_action("win.back", &["<Alt>Left"]);
+    app.set_accels_for_action("win.forward", &["<Alt>Right"]);
     app.set_accels_for_action("win.add-service", &["<Primary>n"]);
 }
 

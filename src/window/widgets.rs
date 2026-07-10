@@ -39,6 +39,16 @@ pub(super) fn build_primary_header(title: &adw::WindowTitle) -> adw::HeaderBar {
         .menu_model(&primary_menu())
         .primary(true)
         .build();
+    let back_button = gtk::Button::builder()
+        .icon_name("go-previous-symbolic")
+        .tooltip_text(gettext("Previous page"))
+        .action_name("win.back")
+        .build();
+    let forward_button = gtk::Button::builder()
+        .icon_name("go-next-symbolic")
+        .tooltip_text(gettext("Next page"))
+        .action_name("win.forward")
+        .build();
     let reload_button = gtk::Button::builder()
         .icon_name("view-refresh-symbolic")
         .tooltip_text(gettext("Reload"))
@@ -52,6 +62,8 @@ pub(super) fn build_primary_header(title: &adw::WindowTitle) -> adw::HeaderBar {
 
     let header = adw::HeaderBar::new();
     header.pack_start(&menu_button);
+    header.pack_start(&back_button);
+    header.pack_start(&forward_button);
     header.pack_start(&reload_button);
     header.pack_start(&home_button);
     header.set_title_widget(Some(title));
@@ -141,7 +153,6 @@ pub(super) fn primary_menu() -> gio::Menu {
 
     let preferences = gio::Menu::new();
     preferences.append(Some(&gettext("Do not disturb")), Some("win.toggle-dnd"));
-    preferences.append(Some(&gettext("Camera, mic & calls")), Some("win.toggle-media"));
     preferences.append(Some(&gettext("Spell-check languages…")), Some("win.spell-languages"));
     menu.append_section(None, &preferences);
 

@@ -7,7 +7,6 @@ use cef::rc::Rc as _;
 use cef::*;
 
 use super::browser_slot::BrowserSlot;
-use super::navigation;
 use super::prefs::apply_spell_prefs;
 
 wrap_life_span_handler! {
@@ -15,7 +14,6 @@ wrap_life_span_handler! {
         slot: Rc<BrowserSlot>,
         muted: bool,
         spell_langs: Vec<String>,
-        home: String,
     }
 
     impl LifeSpanHandler {
@@ -56,20 +54,10 @@ wrap_life_span_handler! {
             _extra_info: Option<&mut Option<DictionaryValue>>,
             _no_javascript_access: Option<&mut ::std::os::raw::c_int>,
         ) -> ::std::os::raw::c_int {
-            // A new window would open: an external link goes to the system
-            // browser, while an internal one (e.g. an SSO popup) loads in-place.
+            // Never open a new window: load the target in-place instead, so every
+            // link (external or an SSO popup) stays inside the service view.
             if let Some(url) = target_url {
-                let target = url.to_string();
-                let current = frame
-                    .as_deref()
-                    .map(|f| CefString::from(&f.url()).to_string());
-                let dest = navigation::external_target(&target, &self.home, current.as_deref());
-                if std::env::var_os("SYLTR_DEBUG").is_some() {
-                    eprintln!("[syltr] popup url={target} -> {}", dest.as_deref().unwrap_or("in-app"));
-                }
-                if let Some(dest) = dest {
-                    navigation::open_external(&dest);
-                } else if let Some(frame) = frame {
+                if let Some(frame) = frame {
                     frame.load_url(Some(url));
                 } else if let Some(frame) = browser.and_then(|b| b.main_frame()) {
                     frame.load_url(Some(url));
@@ -85,8 +73,7 @@ impl LifeSpanHandlerBuilder {
         slot: Rc<BrowserSlot>,
         muted: bool,
         spell_langs: Vec<String>,
-        home: String,
     ) -> LifeSpanHandler {
-        Self::new(slot, muted, spell_langs, home)
+        Self::new(slot, muted, spell_langs)
     }
 }
