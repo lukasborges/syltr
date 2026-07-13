@@ -9,6 +9,7 @@ mod favicon;
 mod scripts;
 mod session;
 mod unread;
+mod webapp_scripts;
 
 use std::cell::Cell;
 use std::path::Path;
@@ -68,6 +69,16 @@ impl ServiceView {
         ));
         if debug_enabled() {
             wire_console_capture(&ucm, name);
+        }
+
+        if url.contains("teams.microsoft.com") {
+            ucm.add_script(&webkit6::UserScript::new(
+                webapp_scripts::teams::TEAMS_JS,
+                webkit6::UserContentInjectedFrames::AllFrames,
+                webkit6::UserScriptInjectionTime::Start,
+                &[],
+                &[],
+            ));
         }
 
         let policies = webkit6::WebsitePolicies::builder()
