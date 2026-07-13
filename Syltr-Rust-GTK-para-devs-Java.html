@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rust + GTK para devs Java — via Syltr</title>
+<style>
+  :root{
+    --bg:#141b25; --card:#1c2533; --card2:#161e29; --code:#0e131a;
+    --rust:#e07a4b; --gnome:#62a0ea; --txt:#e8eaed; --mute:#9aa6b2;
+    --green:#8fd460; --yellow:#f5d076; --white:#fff;
+    --mono:'Cascadia Code','JetBrains Mono','DejaVu Sans Mono',ui-monospace,'Consolas',monospace;
+    --sans:system-ui,'Segoe UI','Cantarell','Helvetica Neue',Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;background:#0a0e14;font-family:var(--sans);color:var(--txt)}
+  .stage{position:fixed;inset:0;display:grid;place-items:center;overflow:hidden}
+  .slide{
+    position:absolute;width:1280px;height:720px;background:var(--bg);
+    transform-origin:center center;padding:52px 60px;display:none;
+    overflow:hidden;border-radius:6px;
+  }
+  .slide.active{display:block}
+  /* kicker / header */
+  .kick{display:flex;align-items:center;gap:12px;font-size:14px;font-weight:700;letter-spacing:.08em;color:var(--rust)}
+  .kick.g{color:var(--gnome)}
+  .kick::before{content:"";width:11px;height:32px;border-radius:3px;background:currentColor}
+  h1.title{font-size:34px;color:var(--white);margin:14px 0 4px;line-height:1.1}
+  .sub{font-size:15px;color:var(--mute);margin-bottom:6px}
+  /* layout helpers */
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+  .grid-l{display:grid;gap:16px;margin-top:14px}
+  .card{background:var(--card);border-radius:10px;padding:20px 22px}
+  .card2{background:var(--card2)}
+  .card h3{font-size:15px;margin-bottom:12px}
+  .r{color:var(--rust)} .g{color:var(--gnome)} .y{color:var(--yellow)}
+  .gr{color:var(--green)} .m{color:var(--mute)} .w{color:var(--white)}
+  ul{list-style:none;display:flex;flex-direction:column;gap:9px}
+  li{font-size:14.5px;line-height:1.3;padding-left:22px;position:relative;color:var(--mute)}
+  li::before{content:"—";position:absolute;left:0;color:var(--rust);font-weight:700}
+  li.g::before{color:var(--gnome)}
+  li b{color:var(--txt)}
+  /* code */
+  .code{background:var(--code);border-radius:10px;overflow:hidden;font-family:var(--mono)}
+  .code .bar{background:#222c3a;color:var(--mute);font-size:12px;padding:7px 14px;font-family:var(--mono)}
+  .code pre{padding:16px 18px;font-size:13.5px;line-height:1.5;color:#d6dde6;white-space:pre-wrap;font-family:var(--mono);overflow-x:auto}
+  .code .c{color:var(--mute)}       /* comentário */
+  .code .k{color:var(--yellow)}     /* keyword */
+  .code .s{color:var(--green)}      /* string */
+  /* comparison table */
+  table{border-collapse:separate;border-spacing:0 6px;width:100%;margin-top:16px}
+  th{padding:10px 16px;font-size:15px;color:#0e131a;text-align:left}
+  th.l{background:var(--gnome);border-radius:8px 0 0 8px}
+  th.rr{background:var(--rust);border-radius:0 8px 8px 0}
+  td{padding:11px 16px;font-family:var(--mono);font-size:14px;background:var(--card)}
+  tr:nth-child(even) td{background:var(--card2)}
+  td:first-child{border-radius:8px 0 0 8px}
+  td:last-child{border-radius:0 8px 8px 0}
+  .note{margin-top:16px;font-size:14.5px;color:var(--mute);line-height:1.4}
+  .note b{color:var(--txt)}
+  .warn{background:#2a1e18;border-radius:10px;padding:16px 20px;margin-top:14px}
+  .ok{background:#18281c;border-radius:10px;padding:16px 20px;margin-top:14px}
+  /* diagram rows */
+  .drow{background:var(--card);border-radius:8px;padding:9px 16px;display:flex;align-items:center;gap:16px;margin-bottom:8px}
+  .num{flex:0 0 42px;height:42px;border-radius:8px;background:var(--rust);color:var(--bg);font-weight:700;font-size:20px;display:grid;place-items:center}
+  .drow .t{font-weight:700;font-size:14.5px;flex:0 0 240px}
+  .drow .d{font-family:var(--mono);font-size:12.5px;color:var(--mute)}
+  .arch{background:var(--card);border-radius:8px;padding:8px 16px;display:flex;gap:16px;align-items:center;margin-bottom:7px}
+  .arch code{color:var(--rust);font-family:var(--mono);font-weight:700;font-size:14px;flex:0 0 190px}
+  .arch span{font-size:13.5px}
+  .stack-lvl{border:1.5px solid var(--gnome);border-radius:8px;padding:8px 14px;margin-bottom:8px;background:var(--card)}
+  .stack-lvl.r{border-color:var(--rust)}
+  .stack-lvl code{font-family:var(--mono);font-weight:700;font-size:14px}
+  .stack-lvl small{display:block;color:var(--mute);font-size:12px;margin-top:2px}
+  /* footer */
+  .foot{position:absolute;left:60px;right:60px;bottom:20px;display:flex;justify-content:space-between;font-size:11px;color:var(--mute)}
+  /* cover */
+  .cover .bar1{position:absolute;left:0;top:0;bottom:0;width:26px;background:var(--rust)}
+  .cover .bar2{position:absolute;left:26px;top:0;bottom:0;width:10px;background:var(--gnome)}
+  .cover .body{padding-left:60px;padding-top:150px}
+  .cover .big{font-size:52px;font-weight:800;line-height:1.05;margin:8px 0 18px}
+  .chip{display:inline-block;font-family:var(--mono);font-size:14px;color:var(--txt);background:var(--card);padding:6px 12px;border-radius:6px}
+  .summary td:first-child{color:var(--rust);font-weight:700;font-family:var(--sans)}
+  .summary td:last-child{font-family:var(--sans);color:var(--txt)}
+  /* HUD */
+  .hud{position:fixed;bottom:14px;right:16px;font-size:12px;color:#6b7684;font-family:var(--mono);z-index:10;user-select:none}
+  .hint{position:fixed;bottom:14px;left:16px;font-size:12px;color:#4a5460;font-family:var(--mono);z-index:10}
+  /* print: one slide per page, fixed */
+  @media print{
+    @page{size:1280px 720px;margin:0}
+    html,body{background:#fff}
+    .stage{position:static;display:block;overflow:visible}
+    .slide{display:block!important;position:relative;transform:none!important;
+      page-break-after:always;break-after:page;border-radius:0;margin:0}
+    .hud,.hint{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+
+<!-- 1 COVER -->
+<section class="slide active cover">
+  <div class="bar1"></div><div class="bar2"></div>
+  <div class="body">
+    <div class="r" style="font-weight:700;font-size:16px;letter-spacing:.06em">APRENDENDO NA PRÁTICA</div>
+    <div class="big"><span class="r">Rust</span> <span class="m">+</span> <span class="g">GTK</span> <span class="w">para quem vem do</span> <span class="y">Java</span></div>
+    <div style="font-size:20px;max-width:900px;line-height:1.35">Um guia visual usando o projeto <b>Syltr</b> — agregador de mensageria nativo do GNOME</div>
+    <div style="margin-top:40px"><span class="m" style="font-size:15px">Stack real do projeto: </span><span class="chip">Rust · GTK4 · libadwaita · CEF (Chromium OSR)</span></div>
+    <div class="m" style="margin-top:16px;font-size:13px">Feito sob medida para um desenvolvedor Java (2013+) começando em Rust e desktop GNOME</div>
+  </div>
+</section>
+
+<!-- 2 O QUE É -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">O que é o Syltr?</h1>
+  <div class="sub">O objeto de estudo — um app desktop real, não um "hello world"</div>
+  <div class="grid2">
+    <div class="card">
+      <h3 class="r">Em uma frase</h3>
+      <p style="font-size:16px;color:var(--mute);line-height:1.35">Junta WhatsApp, Telegram, Slack, Discord & cia. numa <b>única janela nativa do GNOME</b>, cada serviço com <span class="y"><b>sessão isolada</b></span> (cookies/login separados).</p>
+      <ul style="margin-top:14px">
+        <li>Barra lateral de ícones com favicons e badge de não-lidas</li>
+        <li>Notificações nativas, mudo por serviço, "não perturbe"</li>
+        <li>Corretor ortográfico do sistema, downloads, atalhos</li>
+        <li>Links externos abrem no navegador padrão</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 class="g">A stack (e o que cada peça é)</h3>
+      <ul class="g">
+        <li class="g"><b>Rust</b> — linguagem: nativa, sem GC, foco em segurança de memória</li>
+        <li class="g"><b>GTK4</b> — toolkit de UI (widgets, janelas, eventos)</li>
+        <li class="g"><b>libadwaita</b> — componentes visuais do GNOME sobre o GTK</li>
+        <li class="g"><b>CEF</b> — Chromium embarcado que renderiza cada web app</li>
+        <li class="g"><b>Cargo</b> — build + gerenciador de dependências (≈ Maven)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>2</span></div>
+</section>
+
+<!-- 3 ROTEIRO -->
+<section class="slide">
+  <div class="kick g">SYLTR · RUST + GTK</div>
+  <h1 class="title">Roteiro</h1>
+  <div class="sub">Duas metades: a linguagem, depois a UI</div>
+  <div class="grid2">
+    <div class="card" style="padding-top:0;overflow:hidden">
+      <div style="background:var(--rust);color:#0e131a;font-weight:700;font-size:16px;padding:12px 22px;margin:0 -22px 14px">PARTE 1 — A linguagem Rust</div>
+      <ul>
+        <li>Cargo, módulos e a estrutura do projeto</li>
+        <li>struct + impl em vez de classes</li>
+        <li>Ownership & borrowing (a ideia central, sem GC)</li>
+        <li>Option e Result: adeus null e exceptions</li>
+        <li>enum + match (pattern matching)</li>
+        <li>Traits ≈ interfaces</li>
+        <li>Closures, Rc e RefCell</li>
+      </ul>
+    </div>
+    <div class="card" style="padding-top:0;overflow:hidden">
+      <div style="background:var(--gnome);color:#0e131a;font-weight:700;font-size:16px;padding:12px 22px;margin:0 -22px 14px">PARTE 2 — GTK4 + GNOME</div>
+      <ul class="g">
+        <li class="g">O modelo de widgets e o padrão Builder</li>
+        <li class="g">Sinais/eventos: connect_* ≈ listeners</li>
+        <li class="g">O loop principal e a UI single-thread</li>
+        <li class="g">libadwaita: janela, split view, header</li>
+        <li class="g">Arquitetura em camadas do Syltr</li>
+        <li class="g">CEF/OSR: como o motor web funciona</li>
+        <li class="g">Como compilar e rodar</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>3</span></div>
+</section>
+
+<!-- 4 POR QUE RUST -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">Por que Rust? (visto por olhos de Java)</h1>
+  <table>
+    <tr><th class="l">Java</th><th class="rr">Rust</th></tr>
+    <tr><td>JVM + bytecode</td><td>Binário nativo, sem VM</td></tr>
+    <tr><td>Garbage Collector em runtime</td><td>Ownership decidido em compilação</td></tr>
+    <tr><td>null → NullPointerException</td><td>Option&lt;T&gt; (sem null)</td></tr>
+    <tr><td>Exceptions (try/catch)</td><td>Result&lt;T,E&gt; (erro é valor)</td></tr>
+    <tr><td>Interfaces + classes</td><td>Traits + structs (sem herança)</td></tr>
+    <tr><td>Erros de concorrência em runtime</td><td>Data races barradas no compilador</td></tr>
+  </table>
+  <div class="note"><b class="r">Ideia-chave:</b> o compilador do Rust é rígido de propósito — ele te obriga a tratar os casos que no Java viram bug em produção. Custa mais na escrita, devolve em confiança.</div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>4</span></div>
+</section>
+
+<!-- 5 CARGO -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">Cargo & módulos</h1>
+  <div class="sub">O "Maven" do Rust e como o código se organiza</div>
+  <div class="grid2">
+    <div>
+      <div class="code"><div class="bar">Cargo.toml  ≈  pom.xml</div><pre>[package]
+<span class="k">name</span> = <span class="s">"syltr"</span>
+<span class="k">version</span> = <span class="s">"0.1.0"</span>
+<span class="k">edition</span> = <span class="s">"2021"</span>
+
+[dependencies]
+gtk = { version = <span class="s">"0.11.4"</span>, ... }
+cef = <span class="s">"149.3.0"</span>
+serde = { version = <span class="s">"1"</span>, ... }</pre></div>
+      <ul style="margin-top:14px">
+        <li><b>cargo build</b> compila · <b>run</b> executa · <b>test</b> testa</li>
+        <li><b>Cargo.lock</b> trava versões (≈ lockfile)</li>
+        <li><b>crate</b> = biblioteca publicada (≈ artifact)</li>
+        <li><b>crates.io</b> = repositório central (≈ Maven Central)</li>
+      </ul>
+    </div>
+    <div>
+      <div class="code"><div class="bar">Módulos ≈ pacotes</div><pre><span class="c">// src/main.rs declara os módulos:</span>
+<span class="k">mod</span> catalog;
+<span class="k">mod</span> config;
+<span class="k">mod</span> engine;
+<span class="k">mod</span> window;
+
+<span class="c">// dentro de config/mod.rs:</span>
+<span class="k">mod</span> service;   <span class="c">// = config/service.rs</span>
+<span class="k">pub use</span> service::{load, save, Service};</pre></div>
+      <div class="note"><b>Um módulo</b> é uma pasta/arquivo. <span class="y" style="font-family:var(--mono)">pub</span> torna algo visível para fora — sem ele, é privado ao módulo (≈ <span style="font-family:var(--mono);color:var(--txt)">package-private</span> do Java).</div>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>5</span></div>
+</section>
+
+<!-- 6 STRUCT -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">struct + impl em vez de classe</h1>
+  <div class="sub">Rust separa os DADOS (struct) do COMPORTAMENTO (bloco impl). Exemplo real: o Service do Syltr.</div>
+  <div class="grid2">
+    <div class="code"><div class="bar">src/config/service.rs</div><pre><span class="c">#[derive(Clone, Serialize, Deserialize)]</span>
+<span class="k">pub struct</span> Service {
+    <span class="k">pub</span> id: String,
+    <span class="k">pub</span> name: String,
+    <span class="k">pub</span> url: String,
+    <span class="c">#[serde(default)]</span>
+    <span class="k">pub</span> muted: bool,
+}
+
+<span class="c">// métodos ficam num bloco separado:</span>
+<span class="k">impl</span> Service {
+    <span class="k">fn</span> services_file() -> PathBuf { ... }
+}</pre></div>
+    <div class="card">
+      <h3 class="r">Para um dev Java</h3>
+      <ul>
+        <li><b>struct</b> = os campos (como o estado de uma classe)</li>
+        <li><b>impl</b> = onde vivem os métodos</li>
+        <li><b>#[derive(...)]</b> gera código automático — Clone, e (de)serialização JSON via serde</li>
+        <li><b>Sem herança</b> — reuso é via composição e traits</li>
+        <li><b>pub</b> campo a campo controla o encapsulamento</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>6</span></div>
+</section>
+
+<!-- 7 OWNERSHIP -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">Ownership & Borrowing</h1>
+  <div class="sub">O conceito que substitui o Garbage Collector</div>
+  <div class="card" style="margin-top:12px">
+    <ul>
+      <li>Cada valor tem <b>UM dono</b>. Quando o dono sai de escopo, a memória é liberada — automático, sem GC.</li>
+      <li>Você pode <b>EMPRESTAR</b> o valor: <b>&amp;T</b> (leitura, vários) ou <b>&amp;mut T</b> (escrita, um só de cada vez).</li>
+    </ul>
+  </div>
+  <div class="grid2">
+    <div class="code"><div class="bar">Empréstimo de leitura (&)</div><pre><span class="k">fn</span> save(list: &[Service]) {  <span class="c">// empresta</span>
+    <span class="c">// ... só lê a lista</span>
+}
+
+<span class="k">let</span> servicos = config::load();  <span class="c">// dono</span>
+save(&servicos);   <span class="c">// empresta p/ save</span>
+save(&servicos);   <span class="c">// ainda posso usar!</span></pre></div>
+    <div class="card">
+      <h3 class="g">Por que isso importa</h3>
+      <ul class="g">
+        <li class="g">Sem vazamento e sem "use after free" — o compilador prova em tempo de build</li>
+        <li class="g">& vs &mut é como o Rust garante que ninguém escreve enquanto outro lê</li>
+        <li class="g">No Java o GC resolve na marra em runtime; aqui é decidido antes de rodar</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>7</span></div>
+</section>
+
+<!-- 8 OPTION RESULT -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">Option e Result</h1>
+  <div class="sub">Fim do null e das exceptions — o erro vira um valor</div>
+  <div class="grid2">
+    <div class="code"><div class="bar">Exemplos reais do Syltr</div><pre><span class="c">// Option&lt;T&gt;: tem valor OU não (sem null)</span>
+<span class="k">pub fn</span> host(&self) -> Option&lt;BrowserHost&gt; {
+    self.host.borrow().clone()
+}
+
+<span class="c">// o chamador é OBRIGADO a tratar os 2 casos</span>
+<span class="k">if let</span> Some(host) = slot.host() {
+    host.was_resized();
+}
+
+<span class="c">// Result&lt;T,E&gt;: Ok(T) ou Err(E)</span>
+<span class="k">match</span> serde_json::to_string(list) {
+    Ok(json) => fs::write(file, json),
+    Err(e)   => eprintln!(<span class="s">"falhou: {e}"</span>),
+}</pre></div>
+    <div class="card">
+      <h3 class="r">O mapa mental</h3>
+      <ul>
+        <li><b>Option&lt;T&gt;</b> ≈ Optional&lt;T&gt; do Java, mas usado em TODO lugar em vez de null</li>
+        <li><b>Result&lt;T,E&gt;</b> ≈ retorno de erro checado — sem stack unwinding</li>
+        <li><b>Some / None</b> os dois lados de um Option</li>
+        <li><b>Ok / Err</b> os dois lados de um Result</li>
+        <li><b>O compilador reclama</b> se você esquecer de tratar um caso — o bug não chega em produção</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>8</span></div>
+</section>
+
+<!-- 9 ENUM MATCH -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">enum + match</h1>
+  <div class="sub">Enums que carregam dados, e um switch que o compilador confere</div>
+  <div class="grid2">
+    <div class="code"><div class="bar">src/engine/download.rs</div><pre><span class="c">// nome do arquivo conforme a extensão</span>
+<span class="k">let</span> filename = <span class="k">match</span> ext {
+    Some(ext) => format!(<span class="s">"{stem} ({n}).{ext}"</span>),
+    None      => format!(<span class="s">"{stem} ({n})"</span>),
+};
+
+<span class="c">// 'let-else': sai cedo se não houver item</span>
+<span class="k">let</span> Some(item) = download_item <span class="k">else</span> {
+    <span class="k">return</span>;
+};</pre></div>
+    <div class="card">
+      <h3 class="g">Diferente do switch Java</h3>
+      <ul class="g">
+        <li class="g">match é <b>EXAUSTIVO</b>: se faltar um caso, não compila</li>
+        <li class="g">Cada braço pode extrair os dados de dentro (Some(ext) → ext)</li>
+        <li class="g">É uma expressão: devolve valor direto para a variável</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note"><b>enum em Rust é mais poderoso que o do Java:</b> cada variante pode carregar dados diferentes. Option e Result são só enums da biblioteca padrão — nada mágico.</div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>9</span></div>
+</section>
+
+<!-- 10 TRAITS -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">Traits ≈ interfaces</h1>
+  <div class="sub">O handler de downloads implementa a interface (trait) que o CEF chama nos eventos.</div>
+  <div class="grid2" style="grid-template-columns:1.5fr 1fr">
+    <div class="code"><div class="bar">src/engine/download.rs</div><pre><span class="k">impl</span> DownloadHandler {
+    <span class="k">fn</span> on_before_download(&self, ...,
+        suggested_name: Option&lt;&CefString&gt;,
+        callback: Option&lt;&mut ...&gt;) -> c_int {
+        <span class="k">let</span> name = suggested_name
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| <span class="s">"download"</span>.into());
+        <span class="k">let</span> path = unique_path(&dir(), &name);
+        cb.cont(Some(&path.into()), 0);
+        1
+    }
+}</pre></div>
+    <div class="card">
+      <h3 class="r">Traços de trait</h3>
+      <ul>
+        <li><b>trait</b> = contrato de métodos (≈ interface)</li>
+        <li><b>impl Trait for Tipo</b> = implementa o contrato</li>
+        <li><b>&self</b> ≈ o this do método</li>
+        <li>Pode ter método padrão (≈ default method)</li>
+        <li>A última expressão sem ";" É o retorno (o <b>1</b> no fim)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>10</span></div>
+</section>
+
+<!-- 11 CLOSURES -->
+<section class="slide">
+  <div class="kick g">SYLTR · RUST + GTK</div>
+  <h1 class="title">Closures & callbacks</h1>
+  <div class="sub">Funções anônimas — a cola entre a UI e a lógica</div>
+  <div class="grid2" style="grid-template-columns:1.5fr 1fr">
+    <div class="code"><div class="bar">src/window/mod.rs</div><pre><span class="c">// quando uma linha da lista é selecionada:</span>
+<span class="k">let</span> ui_selected = ui.clone();
+list.connect_row_selected(<span class="k">move</span> |_, row| {
+    <span class="k">if let</span> Some(row) = row {
+        ui_selected.show_service_at(
+            row.index() <span class="k">as</span> usize);
+    }
+});</pre></div>
+    <div class="card">
+      <h3 class="g">Lendo a closure</h3>
+      <ul class="g">
+        <li class="g"><b>|args| { corpo }</b> é a sintaxe (≈ lambda -&gt; do Java)</li>
+        <li class="g"><b>move</b> transfere posse das variáveis capturadas para dentro</li>
+        <li class="g"><b>ui.clone()</b> antes: dá uma cópia barata do handle p/ a closure guardar</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note"><b class="g">Comparação Java:</b> connect_row_selected(|...| ...) equivale a list.addListSelectionListener(e -&gt; ...). O <b>move</b> existe porque, sem GC, o Rust precisa saber quem é dono das variáveis que a closure leva consigo.</div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>11</span></div>
+</section>
+
+<!-- 12 RC REFCELL -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">Rc & RefCell</h1>
+  <div class="sub">Compartilhar estado mutável sem GC e sem quebrar as regras</div>
+  <div class="card" style="margin-top:12px"><ul><li>A UI tem callbacks que precisam ver e alterar o <b>MESMO</b> estado. Sem GC, isso exige ferramentas explícitas.</li></ul></div>
+  <div class="grid2" style="grid-template-columns:1.5fr 1fr">
+    <div class="code"><div class="bar">src/window/mod.rs</div><pre><span class="k">struct</span> Ui {
+    <span class="c">// vários donos do mesmo valor:</span>
+    dnd:   Rc&lt;Cell&lt;bool&gt;&gt;,
+    spell: Rc&lt;RefCell&lt;Vec&lt;String&gt;&gt;&gt;,
+    state: Rc&lt;RefCell&lt;State&gt;&gt;,
+}
+
+<span class="c">// ler/alterar o conteúdo em runtime:</span>
+self.state.borrow_mut().current = Some(id);</pre></div>
+    <div class="card">
+      <ul>
+        <li><b>Rc&lt;T&gt;</b> = contagem de referências: vários donos, liberado quando o último some</li>
+        <li><b>RefCell&lt;T&gt;</b> = permite mutar por dentro, checando as regras em runtime</li>
+        <li><b>borrow() / borrow_mut()</b> pegam acesso de leitura/escrita</li>
+      </ul>
+    </div>
+  </div>
+  <div class="note">No Java isso seria "só uma referência a um objeto mutável". <b>O Rust te faz declarar a intenção — e paga com segurança.</b></div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>12</span></div>
+</section>
+
+<!-- 13 DIVISOR -->
+<section class="slide" style="background:#101a28">
+  <div style="position:absolute;left:0;right:0;top:305px;height:4px;background:var(--gnome)"></div>
+  <div style="padding-top:170px">
+    <div class="g" style="font-size:18px;font-weight:700">PARTE 2</div>
+    <div style="font-size:46px;font-weight:800;color:var(--white);margin:6px 0 20px">GTK4 + libadwaita</div>
+    <div class="m" style="font-size:18px">Construindo a interface: widgets, sinais, o loop principal e os componentes do GNOME</div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>13</span></div>
+</section>
+
+<!-- 14 O QUE É GTK -->
+<section class="slide">
+  <div class="kick g">SYLTR · RUST + GTK</div>
+  <h1 class="title">O que é GTK4 (e libadwaita)?</h1>
+  <div class="grid2">
+    <div class="card">
+      <h3 class="g">Analogias para o mundo Java</h3>
+      <ul class="g">
+        <li class="g"><b>GTK4</b> = o toolkit de UI (≈ Swing/JavaFX): janelas, botões, listas, layout, eventos</li>
+        <li class="g"><b>libadwaita</b> = widgets e visual do GNOME sobre o GTK (≈ um "look & feel" + componentes prontos)</li>
+        <li class="g"><b>Escrito em C</b>, exposto ao Rust por bindings — daí os prefixos gtk:: e adw::</li>
+        <li class="g"><b>Cairo</b> = a API de desenho 2D (usada no Syltr p/ pintar a página)</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 class="r">Três ideias centrais do GTK</h3>
+      <ul>
+        <li><b>Árvore de widgets</b> — tudo é um widget aninhado (janela ⊃ toolbar ⊃ split ⊃ lista)</li>
+        <li><b>Sinais</b> — widgets emitem eventos; você conecta callbacks</li>
+        <li><b>Loop principal</b> — uma thread processa eventos e redesenha (como o EDT)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>14</span></div>
+</section>
+
+<!-- 15 BUILDER -->
+<section class="slide">
+  <div class="kick g">SYLTR · RUST + GTK</div>
+  <h1 class="title">Widgets & o padrão Builder</h1>
+  <div class="sub">Como se cria e monta a UI</div>
+  <div class="grid2" style="grid-template-columns:1.55fr 1fr">
+    <div class="code"><div class="bar">src/window/mod.rs</div><pre><span class="k">let</span> window = adw::ApplicationWindow::builder()
+    .application(app)
+    .title(<span class="s">"Syltr"</span>)
+    .default_width(1100)
+    .default_height(760)
+    .content(&root_toolbar)
+    .build();
+
+<span class="k">let</span> split = adw::NavigationSplitView::builder()
+    .sidebar(&sidebar_page)   <span class="c">// rail esquerda</span>
+    .content(&content_page)   <span class="c">// web view</span>
+    .build();</pre></div>
+    <div class="card">
+      <h3 class="r">Reconhece?</h3>
+      <ul>
+        <li>É o mesmo <b>Builder pattern</b> que você já usa no Java (StringBuilder, Lombok @Builder)</li>
+        <li><b>.build()</b> no fim devolve o widget pronto</li>
+        <li><b>&widget</b> passa uma referência emprestada — o pai não vira dono exclusivo</li>
+        <li>Widgets se aninham: janela → toolbar → split → páginas → lista/stack</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>15</span></div>
+</section>
+
+<!-- 16 SINAIS LOOP -->
+<section class="slide">
+  <div class="kick g">SYLTR · RUST + GTK</div>
+  <h1 class="title">Sinais, callbacks e o loop principal</h1>
+  <div class="grid2" style="grid-template-columns:1.4fr 1fr">
+    <div class="code"><div class="bar">src/main.rs</div><pre><span class="k">let</span> app = adw::Application::builder()
+    .application_id(APP_ID).build();
+
+app.connect_startup(|_| load_css());
+app.connect_activate(window::build);
+
+<span class="k">let</span> code = app.run();   <span class="c">// entra no loop!</span></pre></div>
+    <div class="card">
+      <ul class="g">
+        <li class="g"><b>connect_&lt;sinal&gt;</b> liga um callback a um evento — igual a addXxxListener</li>
+        <li class="g"><b>app.run()</b> bloqueia e roda o loop de eventos até a janela fechar</li>
+      </ul>
+    </div>
+  </div>
+  <div class="warn">
+    <div class="y" style="font-weight:700;font-size:15px;margin-bottom:6px">⚠ Regra de ouro (igual ao Swing/JavaFX)</div>
+    <div style="font-size:14.5px;line-height:1.35"><b>Toda a UI roda em UMA thread.</b> <span class="m">Nunca bloqueie o loop principal com trabalho pesado — é o mesmo pecado de travar o Event Dispatch Thread no Swing. Trabalho demorado vai para fora e volta via callback/idle. O CEF do Syltr, inclusive, é "bombeado" pelo loop com engine::start_pump().</span></div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>16</span></div>
+</section>
+
+<!-- 17 LAYOUT -->
+<section class="slide">
+  <div class="kick g">SYLTR · RUST + GTK</div>
+  <h1 class="title">libadwaita: o layout do Syltr</h1>
+  <div class="sub">Componentes prontos do GNOME</div>
+  <div style="margin-top:16px">
+    <div class="stack-lvl"><code class="g">adw::ApplicationWindow</code><small>A janela raiz do app</small></div>
+    <div class="stack-lvl r" style="margin-left:30px"><code class="r">adw::ToolbarView + adw::HeaderBar</code><small>Barra de título/topo</small></div>
+    <div style="display:flex;gap:14px;margin-left:60px">
+      <div class="stack-lvl" style="flex:0 0 300px"><code class="g">SplitView → sidebar</code><small>gtk::ListBox = a barra (rail) de ícones de serviços</small></div>
+      <div class="stack-lvl r" style="flex:1"><code class="r">SplitView → content</code><small>gtk::Stack: troca entre as web views (uma por serviço)</small></div>
+    </div>
+  </div>
+  <div class="note"><b>Cada nível é um widget contendo o próximo.</b> O "Ui" do Syltr é um handle clonável que guarda esses widgets e é passado aos callbacks.</div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>17</span></div>
+</section>
+
+<!-- 18 ARQUITETURA -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">Arquitetura do Syltr</h1>
+  <div class="sub">Módulos por responsabilidade — e uma fronteira clara</div>
+  <div style="margin-top:14px">
+    <div class="arch"><code>src/main.rs</code><span>Sobe o CEF, depois inicia o AdwApplication e o CSS</span></div>
+    <div class="arch"><code>src/window/</code><span>Janela, rail, stack de views, ações, diálogos, menu</span></div>
+    <div class="arch"><code>src/engine/</code><span>Motor web (CEF/OSR): bootstrap, render, handlers, ServiceView</span></div>
+    <div class="arch"><code>src/input/</code><span>Repassa entrada do GTK para o CEF (mouse, teclado, IME)</span></div>
+    <div class="arch"><code>src/config/</code><span>Lista de serviços, settings e caminhos XDG</span></div>
+    <div class="arch"><code>src/catalog.rs</code><span>Catálogo de serviços conhecidos ("receitas")</span></div>
+  </div>
+  <div class="note"><b class="g">Fronteira:</b> o resto do app fala com o motor SÓ pela API pública engine::ServiceView — nunca toca o CEF direto. É o mesmo princípio de programar contra uma interface.</div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>18</span></div>
+</section>
+
+<!-- 19 CEF OSR -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">CEF em modo offscreen (OSR)</h1>
+  <div class="sub">Como cada serviço web aparece dentro da janela GTK</div>
+  <div style="margin-top:12px">
+    <div class="drow"><div class="num">1</div><div class="t">Browser sem janela</div><div class="d">windowless_rendering_enabled = 1</div></div>
+    <div class="drow"><div class="num">2</div><div class="t">Chromium renderiza</div><div class="d">Chromium isolado, com sessão/cache própria por pasta</div></div>
+    <div class="drow"><div class="num">3</div><div class="t">Pixels → callback</div><div class="d">O CEF entrega os quadros já pintados (render.rs guarda o buffer)</div></div>
+    <div class="drow"><div class="num">4</div><div class="t">Cairo desenha no GTK</div><div class="d">Um gtk::DrawingArea pinta o buffer via set_draw_func</div></div>
+    <div class="drow"><div class="num">5</div><div class="t">Entrada de volta</div><div class="d">input:: repassa mouse/teclado do GTK ao browser</div></div>
+  </div>
+  <div class="note"><b class="r">Por que offscreen?</b> No Wayland/Linux o CEF não pode embutir uma janela nativa dentro do GTK, então renderiza "fora da tela" e o Syltr desenha o resultado. É a peça mais avançada — não precisa dominá-la para começar.</div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>19</span></div>
+</section>
+
+<!-- 20 RODAR -->
+<section class="slide">
+  <div class="kick">SYLTR · RUST + GTK</div>
+  <h1 class="title">Mãos à obra: compilar e rodar</h1>
+  <div class="grid2" style="grid-template-columns:1.4fr 1fr">
+    <div class="code"><div class="bar">terminal</div><pre><span class="c"># dependências (Arch Linux)</span>
+./scripts/install-deps.sh
+
+<span class="c"># o CEF vem de um binário externo:</span>
+<span class="k">export</span> CEF_PATH=/caminho/cef_binary_...
+
+<span class="c"># compilar + rodar</span>
+cargo run
+
+<span class="c"># rodar os testes</span>
+cargo test</pre></div>
+    <div class="card">
+      <h3 class="r">Variáveis úteis</h3>
+      <ul>
+        <li><b>CEF_PATH</b> onde estão os recursos do Chromium</li>
+        <li><b>SYLTR_DEBUG=1</b> abre o DevTools remoto em :9222</li>
+        <li><b>SYLTR_CEF_ARGS</b> flags extras do Chromium</li>
+      </ul>
+    </div>
+  </div>
+  <div class="ok"><b class="gr">Dica p/ dev Java:</b> <span class="m">o primeiro cargo build baixa e compila TODAS as dependências (demora, como um "mvn clean install" num projeto grande). Builds seguintes são incrementais e rápidos.</span></div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>20</span></div>
+</section>
+
+<!-- 21 ROTEIRO APRENDIZADO -->
+<section class="slide">
+  <div class="kick g">SYLTR · RUST + GTK</div>
+  <h1 class="title">Seu roteiro de aprendizado</h1>
+  <div class="sub">Ordem sugerida, do concreto ao avançado</div>
+  <div class="grid2">
+    <div class="card">
+      <h3 class="r">Semana a semana</h3>
+      <ul class="g">
+        <li class="g"><b>1. Rust básico</b> — "the Book" cap. 1-10; escreva structs, Option, Result, match</li>
+        <li class="g"><b>2. Leia config/</b> — o pedaço mais "Java-like" do projeto (JSON, structs)</li>
+        <li class="g"><b>3. Ownership de verdade</b> — Rc/RefCell em window/mod.rs</li>
+        <li class="g"><b>4. GTK</b> — sinais e Builder em window/ e widgets.rs</li>
+        <li class="g"><b>5. engine/</b> — traits/handlers; deixe OSR e CEF por último</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 class="r">Recursos</h3>
+      <ul>
+        <li><b>The Rust Book</b> — doc.rust-lang.org/book (grátis, oficial)</li>
+        <li><b>Rustlings</b> — exercícios interativos no terminal</li>
+        <li><b>Rust for Java devs</b> — foque em ownership, traits e enums</li>
+        <li><b>gtk-rs.org</b> — docs e livro dos bindings GTK em Rust</li>
+        <li><b>Docs do GNOME</b> — Human Interface Guidelines + libadwaita</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>21</span></div>
+</section>
+
+<!-- 22 RESUMO -->
+<section class="slide" style="padding-left:0">
+  <div style="position:absolute;left:0;top:0;bottom:0;width:26px;background:var(--gnome)"></div>
+  <div style="position:absolute;left:26px;top:0;bottom:0;width:10px;background:var(--rust)"></div>
+  <div style="padding-left:60px">
+    <h1 class="title" style="font-size:36px;margin-top:8px">Resumo mental</h1>
+    <table class="summary" style="border-spacing:0 8px;max-width:1080px">
+      <tr><td style="width:340px">Sem GC</td><td>ownership decide quem libera memória, em compilação</td></tr>
+      <tr><td>Sem null / sem exceptions</td><td>Option e Result forçam tratar os casos</td></tr>
+      <tr><td>Sem herança</td><td>struct + impl + traits (composição)</td></tr>
+      <tr><td>UI single-thread</td><td>GTK como Swing/JavaFX: nunca bloqueie o loop</td></tr>
+      <tr><td>Builder + sinais</td><td>monta widgets e conecta callbacks (connect_*)</td></tr>
+      <tr><td>Fronteiras claras</td><td>o app fala com o motor só via ServiceView</td></tr>
+    </table>
+    <div style="margin-top:22px;font-size:17px"><b>Você já sabe engenharia de software.</b> <span class="m">Aqui você está só trocando as ferramentas — e o Syltr é seu laboratório.</span></div>
+  </div>
+  <div class="foot"><span>Syltr · aprendendo Rust + GTK a partir do código</span><span>22</span></div>
+</section>
+
+</div>
+
+<div class="hud" id="hud">1 / 22</div>
+<div class="hint">← →  ·  F: tela cheia  ·  Ctrl+P: exportar PDF</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  const stage=document.getElementById('stage');
+  const hud=document.getElementById('hud');
+  let i=0;
+  function fit(){
+    const s=Math.min(window.innerWidth/1280, window.innerHeight/720);
+    slides.forEach(el=>el.style.transform='scale('+s+')');
+  }
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((el,k)=>el.classList.toggle('active',k===i));
+    hud.textContent=(i+1)+' / '+slides.length;
+  }
+  addEventListener('resize',fit);
+  addEventListener('keydown',e=>{
+    if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key)){show(i+1);e.preventDefault();}
+    else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key)){show(i-1);e.preventDefault();}
+    else if(e.key==='Home'){show(0);}
+    else if(e.key==='End'){show(slides.length-1);}
+    else if(e.key.toLowerCase()==='f'){
+      if(!document.fullscreenElement)document.documentElement.requestFullscreen();
+      else document.exitFullscreen();
+    }
+  });
+  addEventListener('click',e=>{ if(!e.target.closest('a')) show(i+1); });
+  fit(); show(0);
+</script>
+</body>
+</html>
