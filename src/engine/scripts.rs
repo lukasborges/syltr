@@ -93,6 +93,72 @@ pub(super) const CONSOLE_JS: &str = r#"
 })();
 "#;
 
+/// Workaround for a WebKitGTK bug (2.52): the media pipeline corrupts `blob:`
+/// sources larger than 2 MB (framing drift under the WebKitWebSrc download
+/// stop/restart cycle), which freezes e.g. WhatsApp videos. Media blobs are
+/// re-served as `data:` URLs, whose delivery path is unaffected. MSE object
+/// URLs and oversized blobs fall through to the original source.
+pub(super) const BLOB_MEDIA_JS: &str = r#"
+(function () {
+  const MAX_BYTES = 64 * 1024 * 1024;
+  const blobs = new Map();
+  const inFlight = new Map();
+  const createURL = URL.createObjectURL.bind(URL);
+  const revokeURL = URL.revokeObjectURL.bind(URL);
+
+  URL.createObjectURL = function (obj) {
+    const url = createURL(obj);
+    if (obj instanceof Blob && obj.size <= MAX_BYTES) blobs.set(url, obj);
+    return url;
+  };
+  URL.revokeObjectURL = function (url) {
+    blobs.delete(url);
+    const pending = inFlight.get(url);
+    if (pending) pending.finally(() => revokeURL(url));
+    else revokeURL(url);
+  };
+
+  const asDataUrl = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+
+  const desc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+  if (!desc || !desc.set) return;
+  Object.defineProperty(HTMLMediaElement.prototype, 'src', {
+    configurable: true,
+    enumerable: desc.enumerable,
+    get: desc.get,
+    set(value) {
+      const url = String(value);
+      if (!url.startsWith('blob:')) return desc.set.call(this, value);
+      const el = this;
+      const known = blobs.get(url);
+      const conversion = (known ? asDataUrl(known)
+        : fetch(url).then((r) => r.blob()).then((b) => {
+            if (b.size > MAX_BYTES) throw new Error('blob too large');
+            return asDataUrl(b);
+          }))
+        .then((dataUrl) => desc.set.call(el, dataUrl))
+        .catch(() => desc.set.call(el, url));
+      inFlight.set(url, conversion);
+      conversion.finally(() => inFlight.delete(url));
+    },
+  });
+
+  const setAttr = HTMLMediaElement.prototype.setAttribute;
+  HTMLMediaElement.prototype.setAttribute = function (name, value) {
+    if (String(name).toLowerCase() === 'src') {
+      this.src = value;
+      return;
+    }
+    return setAttr.call(this, name, value);
+  };
+})();
+"#;
+
 /// Runs a script on the webview (fire-and-forget).
 pub(super) fn run_js(webview: &webkit6::WebView, script: &str) {
     webview.evaluate_javascript(script, None, None, None::<&gtk::gio::Cancellable>, |_| {});

@@ -18,7 +18,7 @@ use gtk::prelude::*;
 use webkit6::prelude::*;
 
 use crate::icon::ServiceIcon;
-use scripts::{run_js, COMPAT_JS, CONSOLE_JS, FAVICON_JS};
+use scripts::{run_js, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS};
 
 /// A single service's web view: its widget, WebKit view and rail icon.
 #[derive(Clone)]
@@ -54,6 +54,13 @@ impl ServiceView {
         // Compatibility shims injected at page start (see COMPAT_JS).
         ucm.add_script(&webkit6::UserScript::new(
             COMPAT_JS,
+            webkit6::UserContentInjectedFrames::AllFrames,
+            webkit6::UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
+        ucm.add_script(&webkit6::UserScript::new(
+            BLOB_MEDIA_JS,
             webkit6::UserContentInjectedFrames::AllFrames,
             webkit6::UserScriptInjectionTime::Start,
             &[],
