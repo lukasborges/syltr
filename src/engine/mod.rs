@@ -175,12 +175,9 @@ fn build_settings() -> webkit6::Settings {
     settings.set_enable_developer_extras(true);
     settings.set_enable_smooth_scrolling(true);
     settings.set_media_playback_requires_user_gesture(false);
-    // Software rendering: WebKit's web process crashes rendering Teams with
-    // hardware acceleration (GPU/compositing bug).
-    settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
-    // Media capture/WebRTC (camera, mic, calls) stays off: it makes WebKit
-    // start the device monitor (GStreamer/PipeWire), which segfaults on some
-    // systems.
+    if std::env::var_os("SYLTR_SW_RENDER").is_some() {
+        settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
+    }
     settings.set_enable_media_stream(false);
     settings.set_enable_webrtc(false);
     enable_runtime_features(&settings);
