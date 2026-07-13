@@ -142,14 +142,16 @@ pub(super) const BLOB_MEDIA_JS: &str = r#"
             return asDataUrl(b);
           }))
         .then((dataUrl) => {
-          el.addEventListener('loadedmetadata', () => {
+          const resyncAudio = () => {
             const muted = el.muted;
             el.muted = !muted;
             el.muted = muted;
             const volume = el.volume;
-            el.volume = volume > 0.5 ? volume - 0.001 : volume + 0.001;
+            el.volume = volume > 0.5 ? volume - 0.05 : volume + 0.05;
             el.volume = volume;
-          }, { once: true });
+          };
+          el.addEventListener('playing', resyncAudio, { once: true });
+          el.addEventListener('timeupdate', resyncAudio, { once: true });
           desc.set.call(el, dataUrl);
         })
         .catch(() => desc.set.call(el, url));
