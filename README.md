@@ -5,7 +5,7 @@ WhatsApp Web, Telegram, Slack, Discord, Messenger and any other web service into
 a single window — each with its own **isolated session** (separate cookies and
 storage).
 
-**Stack:** GTK4 · libadwaita · CEF (Chromium, offscreen) · Rust
+**Stack:** GTK4 · libadwaita · WebKitGTK 6 · Rust
 
 ## Features
 
@@ -14,8 +14,8 @@ storage).
 - **Reorder** services by dragging · **context menu** (right click)
 - **Unread badges** on the icon (detected from the page title)
 - **Native desktop notifications** · **mute** per service · global **do not disturb**
-- **Spell checking** with the system dictionaries · **camera/mic/calls** toggle
-- **External links open in the default browser**; same-site and SSO navigations stay in-app
+- **Spell checking** with the system dictionaries (enchant/hunspell)
+- Every navigation (links, SSO logins, popups) stays **in-app**, with back/forward
 - Isolated session per service (independent login for each)
 - Downloads saved straight to `~/Downloads` with a completion notification
 - Service list persisted in `~/.config/dev.syltr.Syltr/services.json`
@@ -36,15 +36,8 @@ storage).
 Install the dependencies (Arch Linux):
 
 ```bash
-./scripts/install-deps.sh          # toolchain, GTK4/libadwaita, spell check and CEF
+./scripts/install-deps.sh          # toolchain, GTK4/libadwaita, WebKitGTK, spell check
 ./scripts/install-deps.sh --no-ide # skip GNOME Builder
-```
-
-CEF is not in the official repos. The most reliable way to get it is the
-prebuilt binary (Spotify CEF builds); point the `cef` crate at it:
-
-```bash
-export CEF_PATH=/path/to/cef_binary_XXXX_linux64_minimal
 ```
 
 Build and run:
@@ -55,10 +48,14 @@ cargo run
 
 Useful environment variables:
 
-- `CEF_PATH` — directory with the CEF resources (defaults to next to the binary)
-- `SYLTR_DEBUG=1` — enable remote DevTools at `http://localhost:9222`
-- `SYLTR_CEF_ARGS="..."` — extra Chromium switches, space-separated
+- `SYLTR_DEBUG=1` — forward the pages' JS errors/warnings to stderr
 - `SYLTR_LOCALE_DIR` — override the translations directory
+
+### Media codecs (WhatsApp video)
+
+WebKitGTK plays media through **GStreamer**, so H.264/AAC (WhatsApp videos)
+work with the system codecs — on Arch, install `gst-plugins-good` and
+`gst-libav`. No engine rebuild involved.
 
 ### Tests
 
@@ -68,38 +65,38 @@ cargo test
 
 Unit tests are colocated with the code they test: a module gains a `tests`
 submodule declared as `#[cfg(test)] mod tests;`, with the tests living in a
-sibling `tests.rs` inside the module folder (e.g. `src/engine/navigation/tests.rs`).
+sibling `tests.rs` inside the module folder (e.g. `src/engine/unread/tests.rs`).
 This keeps them out of the release build and gives them access to the module's
 internal (`pub(crate)`/private) items.
 
 ## Architecture
 
 The app talks to the web engine **only** through the public `engine::ServiceView`
-API and never touches CEF directly. Each module is split into a folder by
+API and never touches `webkit6` directly. Each module is split into a folder by
 responsibility:
 
 | Path              | Responsibility                                              |
 |-------------------|------------------------------------------------------------|
-| `src/main.rs`     | Bootstrap CEF, then start the `AdwApplication` and CSS      |
+| `src/main.rs`     | `AdwApplication` startup, i18n, CSS, embedded resources     |
 | `src/window/`     | Window, rail, view stack, actions, dialogs, context menu    |
-| `src/engine/`     | Web engine layer (CEF/OSR): bootstrap, render, handlers, `ServiceView` |
-| `src/input/`      | Forwarding GTK input to CEF (mouse, scroll, keyboard, focus, IME) |
-| `src/imgproxy/`   | Workaround for a CEF redirect bug on Google Chat images    |
+| `src/engine/`     | Web engine layer (WebKitGTK 6): sessions, favicons, unread, downloads, `ServiceView` |
 | `src/config/`     | Service list, settings and their XDG file locations         |
 | `src/spellcheck.rs` | Discovery of system spell-check dictionaries             |
 | `src/catalog.rs`  | Catalog of known services ("recipes")                       |
 | `src/icon.rs`     | The service icon (tile + favicon + unread badge)            |
 
-### Web engine (CEF / OSR)
+### Web engine (WebKitGTK 6)
 
-Each service is a **windowless CEF browser** rendering offscreen into a
-`GtkDrawingArea` via Cairo, with an isolated session/cache per service. The rest
-of the app depends only on `ServiceView` (`new`, `widget`, `icon`, `reload`,
-`go_home`, `set_notifications_enabled`, `set_spell_languages`), so the engine
-internals stay contained in `src/engine/`.
+Each service is a `webkit6::WebView` with its own **`NetworkSession`**
+(cookies, storage and cache isolated under the service's session directory).
+The rest of the app depends only on `ServiceView` (`new`, `widget`, `icon`,
+`reload`, `go_back`, `go_forward`, `go_home`, `set_notifications_enabled`,
+`set_spell_languages`), so the engine internals stay contained in `src/engine/`.
 
-> On Wayland/Linux, CEF requires offscreen rendering and its binary distribution
-> (`CEF_PATH`, see `scripts/install-deps.sh`).
+Compatibility choices carried in the engine: hardware acceleration is off (the
+web process crashes compositing Teams), media capture/WebRTC is off (WebKit's
+device monitor segfaults with PipeWire on some systems), and a startup script
+shims `Notification.permission` and `requestIdleCallback`.
 
 ## License
 

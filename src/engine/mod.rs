@@ -1,142 +1,138 @@
-//! Web engine layer — CEF (Chromium) in offscreen (OSR) mode.
+//! Web engine layer — WebKitGTK 6.
 //!
-//! The rest of the app only uses [`ServiceView`]; everything CEF-specific
-//! (multiprocess, message loop, OSR→Cairo, input) is contained in this module's
-//! submodules. Each service is a windowless CEF browser rendering into a
-//! `GtkDrawingArea`, with an isolated session/cache per service.
+//! The rest of the app only uses [`ServiceView`]; everything WebKit-specific
+//! (sessions, permissions, notifications, favicons, downloads) is contained in
+//! this module's submodules. Each service is a `WebView` with an isolated
+//! network session (own cookies/storage/cache) under its session directory.
 
-mod bootstrap;
-mod browser_slot;
-mod client;
-mod context_menu;
-mod display;
-mod download;
-mod lifespan;
-mod permission;
-mod prefs;
-mod render;
-mod request;
-mod request_context;
-
-pub use bootstrap::{init_cef, shutdown_cef, start_pump};
-pub use browser_slot::BrowserSlot;
+mod favicon;
+mod scripts;
+mod session;
+mod unread;
 
 use std::cell::Cell;
 use std::path::Path;
 use std::rc::Rc;
 
-use cef::*;
 use gtk::prelude::*;
-
-use client::ClientBuilder;
-use prefs::apply_spell_prefs;
-use render::{draw, RenderState};
-use request_context::RequestContextHandlerBuilder;
+use webkit6::prelude::*;
 
 use crate::icon::ServiceIcon;
-use crate::input;
+use scripts::{run_js, COMPAT_JS, CONSOLE_JS, FAVICON_JS};
 
-/// White opaque background (ARGB); pages without their own background would be
-/// black in OSR otherwise.
-const OPAQUE_WHITE: u32 = 0xFFFF_FFFF;
-const FRAME_RATE: i32 = 60;
-
-/// A single service's web view: its drawing area, browser handle and icon.
+/// A single service's web view: its widget, WebKit view and rail icon.
 #[derive(Clone)]
 pub struct ServiceView {
     root: gtk::Widget,
-    slot: Rc<BrowserSlot>,
+    webview: webkit6::WebView,
     icon: ServiceIcon,
-    context: Option<RequestContext>,
+    /// Whether desktop notifications are forwarded (mute and DND both land here
+    /// via [`ServiceView::set_notifications_enabled`]).
+    notifications: Rc<Cell<bool>>,
     home: String,
 }
 
 impl ServiceView {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        _id: &str,
+        id: &str,
         name: &str,
         url: &str,
         session_dir: &Path,
-        _app: &adw::Application,
-        _dnd: Rc<Cell<bool>>,
+        app: &adw::Application,
+        dnd: Rc<Cell<bool>>,
         muted: bool,
         spell_langs: &[String],
     ) -> Self {
-        let area = gtk::DrawingArea::builder().hexpand(true).vexpand(true).build();
-        let state = RenderState::new(area.clone());
-        {
-            let state = state.clone();
-            area.set_draw_func(move |_, cr, _w, _h| draw(&state, cr));
+        let network_session = session::build(session_dir);
+        session::wire_downloads(&network_session);
+
+        let settings = build_settings();
+
+        let ucm = webkit6::UserContentManager::new();
+        ucm.register_script_message_handler("faviconReady", None);
+        // Compatibility shims injected at page start (see COMPAT_JS).
+        ucm.add_script(&webkit6::UserScript::new(
+            COMPAT_JS,
+            webkit6::UserContentInjectedFrames::AllFrames,
+            webkit6::UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
+        if debug_enabled() {
+            wire_console_capture(&ucm, name);
         }
 
-        let context = create_request_context(session_dir);
-        let icon = ServiceIcon::new(name);
-        let slot = BrowserSlot::new();
+        let webview = webkit6::WebView::builder()
+            .network_session(&network_session)
+            .settings(&settings)
+            .user_content_manager(&ucm)
+            .vexpand(true)
+            .hexpand(true)
+            .build();
 
-        // Creation is ASYNCHRONOUS: the Chrome runtime builds the per-service
-        // profile in the background, so the browser arrives in on_after_created
-        // (stored in `slot`). The initial notification/spell state is applied
-        // there too, once the context's profile is ready.
-        let window_info = WindowInfo {
-            windowless_rendering_enabled: 1,
-            ..Default::default()
-        };
-        let browser_settings = BrowserSettings {
-            windowless_frame_rate: FRAME_RATE,
-            background_color: OPAQUE_WHITE,
-            ..Default::default()
-        };
-        let mut context_arg = context.clone();
-        browser_host_create_browser(
-            Some(&window_info),
-            Some(&mut ClientBuilder::build(
-                state.clone(),
-                slot.clone(),
-                icon.clone(),
-                muted,
-                spell_langs.to_vec(),
-                context.clone(),
-            )),
-            Some(&CefString::from(url)),
-            Some(&browser_settings),
-            None,
-            context_arg.as_mut(),
-        );
+        apply_spell(&webview, spell_langs);
 
-        {
-            let state = state.clone();
-            let slot = slot.clone();
-            area.connect_resize(move |area, w, h| {
-                let scale = area.scale_factor().max(1) as f32;
-                state.set_size(w.max(1), h.max(1), scale);
-                if let Some(host) = slot.host() {
-                    host.was_resized();
+        // Grant permissions (notifications, media) automatically — this is a
+        // dedicated messaging client, so always allowing is the expected
+        // behavior.
+        webview.connect_permission_request(|_, request| {
+            request.allow();
+            true
+        });
+
+        let notifications = Rc::new(Cell::new(!muted));
+        wire_notifications(&webview, app, id, name, dnd, notifications.clone());
+
+        // "New window"/popup (e.g. "Sign in with Google", target=_blank):
+        // navigate in the service's OWN webview instead of opening a popup or
+        // the external browser, so every navigation (SSO included) stays
+        // in-app and the login cookies land in the service's session.
+        webview.connect_create(|wv, action| {
+            if let Some(uri) = action.request().and_then(|r| r.uri()) {
+                if !uri.is_empty() {
+                    wv.load_uri(&uri);
                 }
+            }
+            None::<gtk::Widget>
+        });
+
+        let icon = ServiceIcon::new(name);
+        favicon::wire(&webview, &ucm, &icon);
+
+        // Unread badge: parse the count out of the page title.
+        {
+            let icon = icon.clone();
+            webview.connect_title_notify(move |wv| {
+                let title = wv.title().map(|t| t.to_string()).unwrap_or_default();
+                icon.set_badge(unread::from_title(&title));
             });
         }
 
-        input::attach(&area, slot.clone());
+        wire_crash_recovery(&webview);
+
+        // Once a page finishes loading, rasterize the real favicon (SVG
+        // included) via JS as a robust fallback to WebKit's own tracking.
+        webview.connect_load_changed(|wv, event| {
+            if event == webkit6::LoadEvent::Finished {
+                run_js(wv, FAVICON_JS);
+            }
+        });
+
+        webview.load_uri(url);
 
         Self {
-            root: area.upcast(),
-            slot,
+            root: webview.clone().upcast(),
+            webview,
             icon,
-            context,
+            notifications,
             home: url.to_string(),
         }
     }
 
-    /// Toggles the service's notifications at the context's content-setting level.
+    /// Toggles forwarding the service's notifications to the desktop.
     pub fn set_notifications_enabled(&self, enabled: bool) {
-        if let Some(ctx) = &self.context {
-            let value = if enabled {
-                ContentSettingValues::ALLOW
-            } else {
-                ContentSettingValues::BLOCK
-            };
-            ctx.set_content_setting(None, None, ContentSettingTypes::NOTIFICATIONS, value);
-        }
+        self.notifications.set(enabled);
     }
 
     pub fn widget(&self) -> &gtk::Widget {
@@ -148,52 +144,147 @@ impl ServiceView {
     }
 
     pub fn reload(&self) {
-        if let Some(browser) = self.slot.browser() {
-            browser.reload();
-        }
+        self.webview.reload();
     }
 
     /// Navigates back in the service's history, if possible.
     pub fn go_back(&self) {
-        if let Some(browser) = self.slot.browser() {
-            if browser.can_go_back() != 0 {
-                browser.go_back();
-            }
+        if self.webview.can_go_back() {
+            self.webview.go_back();
         }
     }
 
     /// Navigates forward in the service's history, if possible.
     pub fn go_forward(&self) {
-        if let Some(browser) = self.slot.browser() {
-            if browser.can_go_forward() != 0 {
-                browser.go_forward();
-            }
+        if self.webview.can_go_forward() {
+            self.webview.go_forward();
         }
     }
 
     pub fn go_home(&self) {
-        if let Some(frame) = self.slot.main_frame() {
-            frame.load_url(Some(&CefString::from(self.home.as_str())));
-        }
+        self.webview.load_uri(&self.home);
     }
 
     pub fn set_spell_languages(&self, langs: &[String]) {
-        if let Some(ctx) = &self.context {
-            apply_spell_prefs(ctx, langs);
+        apply_spell(&self.webview, langs);
+    }
+}
+
+fn build_settings() -> webkit6::Settings {
+    let settings = webkit6::Settings::new();
+    settings.set_enable_developer_extras(true);
+    settings.set_enable_smooth_scrolling(true);
+    settings.set_media_playback_requires_user_gesture(false);
+    // Software rendering: WebKit's web process crashes rendering Teams with
+    // hardware acceleration (GPU/compositing bug).
+    settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
+    // Media capture/WebRTC (camera, mic, calls) stays off: it makes WebKit
+    // start the device monitor (GStreamer/PipeWire), which segfaults on some
+    // systems.
+    settings.set_enable_media_stream(false);
+    settings.set_enable_webrtc(false);
+    enable_runtime_features(&settings);
+    settings
+}
+
+/// Enables runtime WebKit features that are off by default but that some
+/// services require — notably `requestIdleCallback` (Microsoft Teams).
+fn enable_runtime_features(settings: &webkit6::Settings) {
+    let Some(list) = webkit6::Settings::all_features() else {
+        return;
+    };
+    for i in 0..list.length() {
+        let Some(feature) = list.get(i) else { continue };
+        let id = feature
+            .identifier()
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        if id.to_lowercase().contains("idlecallback") {
+            settings.set_feature_enabled(&feature, true);
         }
     }
 }
 
-/// Creates a request context with an isolated session/cache under `session_dir`
-/// (a subdirectory of root_cache_path, as the Chrome runtime requires).
-fn create_request_context(session_dir: &Path) -> Option<RequestContext> {
-    let _ = std::fs::create_dir_all(session_dir);
-    let settings = RequestContextSettings {
-        cache_path: CefString::from(session_dir.to_str().unwrap_or_default()),
-        ..Default::default()
-    };
-    request_context_create_context(
-        Some(&settings),
-        Some(&mut RequestContextHandlerBuilder::build()),
-    )
+/// Applies spell checking to the webview's shared context in the given
+/// languages (an empty list turns it off). Backend: enchant/hunspell, so the
+/// system dictionaries are used directly.
+fn apply_spell(webview: &webkit6::WebView, langs: &[String]) {
+    if let Some(context) = webview.context().or_else(webkit6::WebContext::default) {
+        context.set_spell_checking_enabled(!langs.is_empty());
+        if !langs.is_empty() {
+            let refs: Vec<&str> = langs.iter().map(String::as_str).collect();
+            context.set_spell_checking_languages(&refs);
+        }
+    }
+}
+
+/// Forwards the site's Web Notifications to the desktop, honoring the
+/// service's mute and the global "do not disturb".
+fn wire_notifications(
+    webview: &webkit6::WebView,
+    app: &adw::Application,
+    id: &str,
+    name: &str,
+    dnd: Rc<Cell<bool>>,
+    enabled: Rc<Cell<bool>>,
+) {
+    let app = app.clone();
+    let id = id.to_string();
+    let name = name.to_string();
+    webview.connect_show_notification(move |_wv, notification| {
+        if dnd.get() || !enabled.get() {
+            return true; // suppress (we take ownership of the notification)
+        }
+        let title = notification
+            .title()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| name.clone());
+        let notif = gtk::gio::Notification::new(&title);
+        if let Some(body) = notification.body() {
+            notif.set_body(Some(&body));
+        }
+        app.send_notification(Some(&id), &notif);
+        true
+    });
+}
+
+/// Recovery: if the web process dies (crash/OOM), the page goes blank. Reload
+/// ONCE, rate-limited so a page that crashes on load doesn't loop forever.
+fn wire_crash_recovery(webview: &webkit6::WebView) {
+    let last_reload: Rc<Cell<Option<std::time::Instant>>> = Rc::new(Cell::new(None));
+    webview.connect_web_process_terminated(move |wv, reason| {
+        eprintln!(
+            "syltr[webproc] terminated: {reason:?} — {}",
+            wv.uri().unwrap_or_default()
+        );
+        let now = std::time::Instant::now();
+        let looping = last_reload
+            .get()
+            .is_some_and(|t| now.duration_since(t).as_secs() < 20);
+        if !looping {
+            last_reload.set(Some(now));
+            wv.reload();
+        }
+    });
+}
+
+/// JS error capture (SYLTR_DEBUG=1): forwards console.error/warn, window.onerror
+/// and rejected promises to stderr.
+fn wire_console_capture(ucm: &webkit6::UserContentManager, name: &str) {
+    ucm.register_script_message_handler("consoleCapture", None);
+    ucm.add_script(&webkit6::UserScript::new(
+        CONSOLE_JS,
+        webkit6::UserContentInjectedFrames::AllFrames,
+        webkit6::UserScriptInjectionTime::Start,
+        &[],
+        &[],
+    ));
+    let tag = name.to_string();
+    ucm.connect_script_message_received(Some("consoleCapture"), move |_, value| {
+        eprintln!("syltr[{tag}] {}", value.to_str());
+    });
+}
+
+fn debug_enabled() -> bool {
+    std::env::var_os("SYLTR_DEBUG").is_some()
 }

@@ -21,7 +21,7 @@
       Slack, Discord, Messenger e outros) numa única janela — cada serviço
       com sua própria sessão isolada.
     </p>
-    <p>Construído nativamente para o GNOME com GTK4, libadwaita e Chromium (CEF).</p>
+    <p>Construído nativamente para o GNOME com GTK4, libadwaita e WebKitGTK.</p>
   </description>
 
   <launchable type="desktop-id">dev.syltr.Syltr.desktop</launchable>

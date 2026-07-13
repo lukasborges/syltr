@@ -1,14 +1,13 @@
 //! Syltr — an all-in-one messaging service aggregator for GNOME.
 //!
-//! Stack: GTK4 + libadwaita + CEF (Chromium), in Rust. The web engine is
-//! isolated in `engine.rs`, rendered offscreen (OSR) into GTK drawing areas.
+//! Stack: GTK4 + libadwaita + WebKitGTK 6, in Rust. The web engine is
+//! isolated in the `engine` module; the rest of the app never touches
+//! `webkit6` directly.
 
 mod catalog;
 mod config;
 mod engine;
 mod icon;
-mod imgproxy;
-mod input;
 mod spellcheck;
 mod window;
 
@@ -59,11 +58,6 @@ const STYLE: &str = "
 ";
 
 fn main() -> glib::ExitCode {
-    // Bootstrap CEF BEFORE GTK: in a subprocess this exits immediately.
-    if !engine::init_cef() {
-        return glib::ExitCode::SUCCESS;
-    }
-
     init_i18n();
     register_resources();
 
@@ -74,9 +68,7 @@ fn main() -> glib::ExitCode {
     app.connect_startup(|_| load_css());
     app.connect_activate(window::build);
 
-    let code = app.run();
-    engine::shutdown_cef();
-    code
+    app.run()
 }
 
 /// Sets up interface translation according to the system language.

@@ -3,11 +3,10 @@
 # Syltr — instalador de dependências de desenvolvimento (Arch Linux)
 # =================================================================
 # Agregador de serviços de mensagens em GTK4 + libadwaita
-# + Rust, usando a engine do Chromium via CEF (Chromium Embedded Framework).
+# + Rust, usando a engine WebKitGTK 6.
 #
 # Uso:
 #   ./scripts/install-deps.sh            # instala tudo
-#   ./scripts/install-deps.sh --no-cef   # pula o CEF (usa só WebKitGTK p/ dev)
 #   ./scripts/install-deps.sh --no-ide   # pula GNOME Builder e ferramentas de IDE
 #
 # Idempotente: pode rodar quantas vezes quiser.
@@ -27,11 +26,9 @@ ok()    { printf '%s  ✓%s %s\n' "$C_GREEN" "$C_RESET" "$*"; }
 warn()  { printf '%s  !%s %s\n' "$C_YELLOW" "$C_RESET" "$*"; }
 err()   { printf '%s  ✗%s %s\n' "$C_RED" "$C_RESET" "$*" >&2; }
 
-INSTALL_CEF=1
 INSTALL_IDE=1
 for arg in "$@"; do
     case "$arg" in
-        --no-cef) INSTALL_CEF=0 ;;
         --no-ide) INSTALL_IDE=0 ;;
         -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) err "argumento desconhecido: $arg"; exit 1 ;;
@@ -78,10 +75,13 @@ PKGS_GNOME=(
     hicolor-icon-theme adwaita-icon-theme
 )
 
-# WebKitGTB — engine WebKit. Fica como FALLBACK de desenvolvimento
-# (a engine final do Syltr é Chromium via CEF, veja abaixo).
+# WebKitGTK — a engine web do Syltr. A mídia sai via GStreamer, então os
+# plugins good + libav dão H.264/AAC (vídeo do WhatsApp) com codecs do sistema.
 PKGS_WEBKIT=(
     webkitgtk-6.0
+    gst-plugins-base
+    gst-plugins-good
+    gst-libav
 )
 
 # Verificação ortográfica: enchant + backend hunspell + dicionário. O WebKit
@@ -139,59 +139,6 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# CEF (Chromium Embedded Framework) — a engine Chromium
-# ----------------------------------------------------------------------------
-# CEF não está nos repos oficiais; vem do AUR. Precisa de um AUR helper.
-detect_aur_helper() {
-    for h in paru yay; do
-        if command -v "$h" >/dev/null 2>&1; then echo "$h"; return 0; fi
-    done
-    return 1
-}
-
-cef_via_binary_hint() {
-    cat <<'EOF'
-
-    O jeito mais confiável de obter o CEF (engine Chromium) é o binário oficial
-    pré-compilado (Spotify CEF builds) — evita horas de build do Chromium:
-
-      1. Abra:  https://cef-builds.spotifycdn.com/index.html
-      2. Baixe o "Minimal Distribution" para Linux 64-bit.
-      3. Extraia e exporte a variável que o crate 'cef' usa:
-
-           export CEF_PATH=/caminho/para/cef_binary_XXXX_linux64_minimal
-           # adicione essa linha ao seu ~/.bashrc para persistir
-
-    Só será necessário quando migrarmos a engine de WebKitGTK para CEF.
-EOF
-}
-
-if [[ $INSTALL_CEF -eq 1 ]]; then
-    info "Preparando CEF (engine Chromium)..."
-    if AUR=$(detect_aur_helper); then
-        # Nomes do CEF no AUR variam com o tempo; tenta os candidatos conhecidos.
-        cef_ok=0
-        for pkg in cef-minimal cef; do
-            if "$AUR" -S --needed "$pkg" 2>/dev/null; then
-                ok "CEF instalado via $AUR ($pkg)."
-                cef_ok=1
-                break
-            fi
-        done
-        if [[ $cef_ok -eq 0 ]]; then
-            warn "Nenhum pacote CEF encontrado no AUR (o 'cef' completo compila o"
-            warn "Chromium do zero e leva horas). Recomendo o binário pré-compilado:"
-            cef_via_binary_hint
-        fi
-    else
-        warn "Nenhum AUR helper (paru/yay) encontrado."
-        cef_via_binary_hint
-    fi
-else
-    warn "Pulando CEF (--no-cef). Desenvolvimento segue com WebKitGTK."
-fi
-
-# ----------------------------------------------------------------------------
 # Resumo
 # ----------------------------------------------------------------------------
 echo
@@ -205,7 +152,6 @@ for lib in gtk4 libadwaita-1 webkitgtk-6.0; do
 done
 command -v gnome-builder >/dev/null 2>&1 && ok "gnome-builder $(gnome-builder --version 2>/dev/null | head -1)"
 command -v cargo >/dev/null 2>&1 && ok "cargo $(cargo --version | awk '{print $2}')"
-if pacman -Qq cef-minimal >/dev/null 2>&1; then ok "cef-minimal instalado"; fi
 
 echo
 ok "Ambiente de desenvolvimento pronto."

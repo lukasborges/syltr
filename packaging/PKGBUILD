@@ -1,32 +1,29 @@
 # Maintainer: Lucas Borges <lucas.borges@local>
 #
 # Syltr — agregador de serviços de mensagens com engine
-# Chromium (CEF) + GTK4/libadwaita.
+# WebKitGTK 6 + GTK4/libadwaita.
 #
-# O CEF é baixado FRESCO a cada build (última versão compatível): o build()
-# roda `cargo update`, que pega a última release do crate `cef` dentro da
-# major suportada, e o cef-dll-sys baixa o binário correspondente do CEF.
-#
-# NOTA: o crate `cef` é acoplado à major do Chromium. Para saltar de major
-# (ex.: 149 -> 150), edite a linha `cef = "..."` no Cargo.toml (pode exigir
-# pequenos ajustes de código quando a API do CEF muda).
+# A engine é a webkitgtk-6.0 do sistema (pacote oficial do Arch): nada de
+# download de binário de engine no build. Mídia (H.264/AAC, vídeo do WhatsApp)
+# sai via GStreamer com os codecs do sistema — instale gst-libav.
 
 pkgname=syltr
 pkgver=0.1.0
-pkgrel=8
-pkgdesc="Agregador de serviços de mensagens — Chromium/CEF + GTK4"
+pkgrel=9
+pkgdesc="Agregador de serviços de mensagens — WebKitGTK 6 + GTK4"
 arch=('x86_64')
 url="https://github.com/lucasborges/syltr"
 license=('GPL-3.0-or-later')
 depends=(
-  'gtk4' 'libadwaita'
-  # runtime do Chromium/CEF (o resto vem via gtk4)
-  'nss' 'nspr' 'alsa-lib' 'libcups' 'libdrm' 'mesa'
-  'at-spi2-core' 'dbus' 'libxcomposite' 'libxdamage'
-  'libxrandr' 'libxkbcommon' 'libxtst' 'libxfixes'
+  'gtk4' 'libadwaita' 'webkitgtk-6.0'
+  'gst-plugins-base' 'gst-plugins-good'
   'hicolor-icon-theme'
 )
-makedepends=('rust' 'cargo' 'git' 'gettext' 'clang' 'glib2')
+optdepends=(
+  'gst-libav: codecs H.264/AAC (vídeo do WhatsApp)'
+  'hunspell-pt-br: verificação ortográfica em português'
+)
+makedepends=('rust' 'cargo' 'git' 'gettext' 'glib2')
 options=('strip' '!debug' '!lto')
 source=("$pkgname::git+file:///home/lucasborges/Projects/Syltr#branch=cef-spike")
 sha256sums=('SKIP')
@@ -34,8 +31,6 @@ sha256sums=('SKIP')
 build() {
   cd "$srcdir/$pkgname"
   export CARGO_TARGET_DIR="$srcdir/target"
-  # Sempre a última versão compatível do CEF (baixa fresco via cef-dll-sys).
-  cargo update
   cargo build --release
   # Compila as traduções.
   for po in po/*.po; do
@@ -45,43 +40,11 @@ build() {
 
 package() {
   cd "$srcdir/$pkgname"
-  local libdir="$pkgdir/usr/lib/$pkgname"
-  install -d "$libdir"
 
-  # Binário real (o wrapper em /usr/bin ajusta o ambiente e o executa).
-  install -Dm755 "$srcdir/target/release/syltr" "$libdir/syltr"
+  install -Dm755 "$srcdir/target/release/syltr" "$pkgdir/usr/bin/syltr"
 
-  # Distribuição do CEF: baixada pelo build (OUT_DIR) ou fornecida via CEF_PATH.
-  local cef="${CEF_PATH:-}"
-  if [ -z "$cef" ] || [ ! -f "$cef/libcef.so" ]; then
-    cef=$(find "$srcdir/target" -type d -name 'cef_linux_x86_64' | head -1)
-  fi
-  [ -n "$cef" ] && [ -f "$cef/libcef.so" ] || { echo "CEF não encontrado"; return 1; }
-
-  install -m644 "$cef"/*.pak "$libdir/"
-  install -m644 "$cef"/icudtl.dat "$libdir/"
-  install -m755 "$cef"/libcef.so "$libdir/"
-  cp -r "$cef"/locales "$libdir/"
-  # Arquivos opcionais (podem não existir dependendo da distribuição do CEF).
-  for f in v8_context_snapshot.bin libEGL.so libGLESv2.so \
-           libvk_swiftshader.so libvulkan.so.1 vk_swiftshader_icd.json; do
-    [ -e "$cef/$f" ] && install -m644 "$cef/$f" "$libdir/"
-  done
-
-  # Wrapper: aponta libcef e recursos, depois executa o binário real.
-  install -d "$pkgdir/usr/bin"
-  cat > "$pkgdir/usr/bin/syltr" <<EOF
-#!/bin/sh
-export LD_LIBRARY_PATH="/usr/lib/$pkgname\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-export CEF_PATH="/usr/lib/$pkgname"
-exec "/usr/lib/$pkgname/syltr" "\$@"
-EOF
-  chmod 755 "$pkgdir/usr/bin/syltr"
-
-  # .desktop (Exec = wrapper no PATH), ícone e metainfo.
-  sed 's|^Exec=.*|Exec=syltr|' data/dev.syltr.Syltr.desktop \
-    > "$srcdir/dev.syltr.Syltr.desktop"
-  install -Dm644 "$srcdir/dev.syltr.Syltr.desktop" \
+  # .desktop, ícone e metainfo.
+  install -Dm644 data/dev.syltr.Syltr.desktop \
     "$pkgdir/usr/share/applications/dev.syltr.Syltr.desktop"
   install -Dm644 data/icons/dev.syltr.Syltr.svg \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/dev.syltr.Syltr.svg"
