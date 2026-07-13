@@ -84,10 +84,10 @@ impl ServiceView {
         let notifications = Rc::new(Cell::new(!muted));
         wire_notifications(&webview, app, id, name, dnd, notifications.clone());
 
-        // "New window"/popup (e.g. "Sign in with Google", target=_blank):
-        // navigate in the service's OWN webview instead of opening a popup or
-        // the external browser, so every navigation (SSO included) stays
-        // in-app and the login cookies land in the service's session.
+        wire_link_clicks(&webview);
+
+        // window.open (auth popups) navigates the service's own webview, so
+        // login cookies stay in its session.
         webview.connect_create(|wv, action| {
             if let Some(uri) = action.request().and_then(|r| r.uri()) {
                 if !uri.is_empty() {
@@ -215,6 +215,39 @@ fn apply_spell(webview: &webkit6::WebView, langs: &[String]) {
             let refs: Vec<&str> = langs.iter().map(String::as_str).collect();
             context.set_spell_checking_languages(&refs);
         }
+    }
+}
+
+/// A clicked link asking for a new window (`target=_blank`, i.e. every link in
+/// a chat message) opens in the default browser; JS popups (`window.open`,
+/// OAuth/SSO) and same-frame navigation stay in-app.
+fn wire_link_clicks(webview: &webkit6::WebView) {
+    webview.connect_decide_policy(|_wv, decision, decision_type| {
+        if decision_type != webkit6::PolicyDecisionType::NewWindowAction {
+            return false;
+        }
+        let Some(nav) = decision.downcast_ref::<webkit6::NavigationPolicyDecision>() else {
+            return false;
+        };
+        let Some(action) = nav.navigation_action() else {
+            return false;
+        };
+        if action.navigation_type() != webkit6::NavigationType::LinkClicked {
+            return false;
+        }
+        let Some(uri) = action.request().and_then(|r| r.uri()) else {
+            return false;
+        };
+        open_in_default_browser(&uri);
+        decision.ignore();
+        true
+    });
+}
+
+fn open_in_default_browser(uri: &str) {
+    let context = None::<&gtk::gio::AppLaunchContext>;
+    if let Err(e) = gtk::gio::AppInfo::launch_default_for_uri(uri, context) {
+        eprintln!("[syltr] could not open {uri} externally: {e}");
     }
 }
 
