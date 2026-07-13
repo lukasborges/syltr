@@ -141,7 +141,17 @@ pub(super) const BLOB_MEDIA_JS: &str = r#"
             if (b.size > MAX_BYTES) throw new Error('blob too large');
             return asDataUrl(b);
           }))
-        .then((dataUrl) => desc.set.call(el, dataUrl))
+        .then((dataUrl) => {
+          el.addEventListener('loadedmetadata', () => {
+            const muted = el.muted;
+            el.muted = !muted;
+            el.muted = muted;
+            const volume = el.volume;
+            el.volume = volume > 0.5 ? volume - 0.001 : volume + 0.001;
+            el.volume = volume;
+          }, { once: true });
+          desc.set.call(el, dataUrl);
+        })
         .catch(() => desc.set.call(el, url));
       inFlight.set(url, conversion);
       conversion.finally(() => inFlight.delete(url));
