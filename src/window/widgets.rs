@@ -148,12 +148,18 @@ pub(super) fn primary_menu() -> gio::Menu {
 
     let services = gio::Menu::new();
     services.append(Some(&gettext("Add service")), Some("win.add-service"));
-    services.append(Some(&gettext("Remove current service")), Some("win.remove-service"));
+    services.append(
+        Some(&gettext("Remove current service")),
+        Some("win.remove-service"),
+    );
     menu.append_section(None, &services);
 
     let preferences = gio::Menu::new();
     preferences.append(Some(&gettext("Do not disturb")), Some("win.toggle-dnd"));
-    preferences.append(Some(&gettext("Spell-check languages…")), Some("win.spell-languages"));
+    preferences.append(
+        Some(&gettext("Spell-check languages…")),
+        Some("win.spell-languages"),
+    );
     menu.append_section(None, &preferences);
 
     let about = gio::Menu::new();

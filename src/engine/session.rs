@@ -33,7 +33,11 @@ pub(super) fn build(session_dir: &Path) -> webkit6::NetworkSession {
 pub(super) fn wire_downloads(session: &webkit6::NetworkSession) {
     session.connect_download_started(|_, download| {
         download.connect_decide_destination(|download, suggested| {
-            let name = if suggested.is_empty() { "download" } else { suggested };
+            let name = if suggested.is_empty() {
+                "download"
+            } else {
+                suggested
+            };
             let path = unique_path(&downloads_dir(), name);
             download.set_destination(&path.to_string_lossy());
             true

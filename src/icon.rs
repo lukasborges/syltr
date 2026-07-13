@@ -93,7 +93,12 @@ fn build_tile_background() -> gtk::DrawingArea {
     background.set_draw_func(|area, cr, w, h| {
         let c = area.color();
         rounded_rect(cr, 0.5, 0.5, w as f64 - 1.0, h as f64 - 1.0, RADIUS);
-        cr.set_source_rgba(c.red() as f64, c.green() as f64, c.blue() as f64, TILE_ALPHA);
+        cr.set_source_rgba(
+            c.red() as f64,
+            c.green() as f64,
+            c.blue() as f64,
+            TILE_ALPHA,
+        );
         let _ = cr.fill();
     });
     background

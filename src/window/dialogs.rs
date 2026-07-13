@@ -119,7 +119,9 @@ fn catalog_groups(ui: &Ui, dialog: &adw::Dialog, search: &gtk::SearchEntry) -> g
     let mut groups: Vec<(adw::PreferencesGroup, Vec<(adw::ActionRow, String)>)> = Vec::new();
 
     for category in catalog::categories() {
-        let group = adw::PreferencesGroup::builder().title(gettext(category)).build();
+        let group = adw::PreferencesGroup::builder()
+            .title(gettext(category))
+            .build();
         let mut rows = Vec::new();
         for entry in catalog::CATALOG.iter().filter(|e| e.category == category) {
             let row = adw::ActionRow::builder()
@@ -172,7 +174,9 @@ fn custom_group(ui: &Ui, dialog: &adw::Dialog) -> (adw::PreferencesGroup, gtk::B
         .build();
 
     let name_row = adw::EntryRow::builder().title(gettext("Name")).build();
-    let url_row = adw::EntryRow::builder().title(gettext("URL (https://…)")).build();
+    let url_row = adw::EntryRow::builder()
+        .title(gettext("URL (https://…)"))
+        .build();
     group.add(&name_row);
     group.add(&url_row);
 
