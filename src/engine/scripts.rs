@@ -125,7 +125,7 @@ pub(super) const BLOB_MEDIA_JS: &str = r#"
     reader.readAsDataURL(blob);
   });
 
-  const desc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
+    const desc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src');
   if (!desc || !desc.set) return;
   Object.defineProperty(HTMLMediaElement.prototype, 'src', {
     configurable: true,
@@ -135,6 +135,7 @@ pub(super) const BLOB_MEDIA_JS: &str = r#"
       const url = String(value);
       if (!url.startsWith('blob:')) return desc.set.call(this, value);
       const el = this;
+      if (el.tagName === 'AUDIO') return desc.set.call(this, value);
       const known = blobs.get(url);
       const conversion = (known ? asDataUrl(known)
         : fetch(url).then((r) => r.blob()).then((b) => {
