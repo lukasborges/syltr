@@ -63,10 +63,14 @@ impl ServiceView {
             wire_console_capture(&ucm, name);
         }
 
+        let policies = webkit6::WebsitePolicies::builder()
+            .autoplay(webkit6::AutoplayPolicy::Allow)
+            .build();
         let webview = webkit6::WebView::builder()
             .network_session(&network_session)
             .settings(&settings)
             .user_content_manager(&ucm)
+            .website_policies(&policies)
             .vexpand(true)
             .hexpand(true)
             .build();
