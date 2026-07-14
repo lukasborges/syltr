@@ -58,3 +58,4 @@ packaging/pkg/
 packaging/*.pkg.tar.zst
 packaging/syltr/
 test/
+AGENTS.md
