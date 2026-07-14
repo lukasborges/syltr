@@ -270,6 +270,42 @@ pub(super) const AUDIO_BOOST_JS: &str = r#"
 })();
 "#;
 
+/// Suppresses the GNOME media-session controls that appear when a page uses
+/// <audio>/<video>. WebKit reports the playback to Mutter/PipeWire; by making
+/// navigator.mediaSession inert we keep the audio boost while avoiding the
+/// player notification shown in the screenshot.
+pub(super) const MEDIA_SESSION_SUPPRESS_JS: &str = r#"
+(function () {
+  if (window.__syltrMediaSessionSuppressed) return;
+  window.__syltrMediaSessionSuppressed = true;
+
+  try {
+    const dummy = {};
+    const nope = function () {};
+    Object.defineProperty(navigator, 'mediaSession', {
+      configurable: true,
+      enumerable: true,
+      get: () => dummy,
+      set: nope,
+    });
+    ['metadata', 'playbackState'].forEach((p) => {
+      Object.defineProperty(dummy, p, {
+        configurable: true,
+        enumerable: true,
+        get: () => null,
+        set: nope,
+      });
+    });
+    dummy.setActionHandler = nope;
+    dummy.setPositionState = nope;
+    dummy.setCameraActive = nope;
+    dummy.setMicrophoneActive = nope;
+    dummy.setQueue = nope;
+    dummy.setActiveQueueItem = nope;
+  } catch (e) {}
+})();
+"#;
+
 /// Runs a script on the webview (fire-and-forget).
 pub(super) fn run_js(webview: &webkit6::WebView, script: &str) {
     webview.evaluate_javascript(script, None, None, None::<&gtk::gio::Cancellable>, |_| {});

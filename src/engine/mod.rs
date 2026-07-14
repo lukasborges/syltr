@@ -20,7 +20,10 @@ use gtk::gdk;
 use gtk::prelude::*;
 use webkit6::prelude::*;
 
-use scripts::{run_js, AUDIO_BOOST_JS, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS};
+use scripts::{
+    run_js, AUDIO_BOOST_JS, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS,
+    MEDIA_SESSION_SUPPRESS_JS,
+};
 
 /// A callback invoked when a view's favicon or unread count changes.
 type ChangeCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
@@ -82,6 +85,13 @@ impl ServiceView {
             &[],
             &[],
         ));
+        ucm.add_script(&webkit6::UserScript::new(
+            MEDIA_SESSION_SUPPRESS_JS,
+            webkit6::UserContentInjectedFrames::AllFrames,
+            webkit6::UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
         if debug_enabled() {
             wire_console_capture(&ucm, name);
         }
@@ -108,6 +118,7 @@ impl ServiceView {
             .hexpand(true)
             .build();
 
+        allow_notifications(&webview, url);
         apply_spell(&webview, spell_langs);
 
         // Grant permissions (notifications, media) automatically — this is a
@@ -282,6 +293,21 @@ fn enable_runtime_features(settings: &webkit6::Settings) {
             settings.set_feature_enabled(&feature, true);
         }
     }
+}
+
+/// Pre-authorizes desktop notifications for the service's origin so pages
+/// never see a permission request and `new Notification()` succeeds.
+fn allow_notifications(webview: &webkit6::WebView, url: &str) {
+    let Some(context) = webview.context() else {
+        return;
+    };
+    let origin = webkit6::SecurityOrigin::for_uri(url);
+    context.initialize_notification_permissions(&[&origin], &[]);
+    let url = url.to_string();
+    context.connect_initialize_notification_permissions(move |ctx| {
+        let origin = webkit6::SecurityOrigin::for_uri(&url);
+        ctx.initialize_notification_permissions(&[&origin], &[]);
+    });
 }
 
 /// Applies spell checking to the webview's shared context in the given
