@@ -190,7 +190,7 @@ pub(super) fn show_edit_dialog(ui: &Ui, index: usize) {
         dialog_ref.close();
     });
 
-    dialog.set_child(Some(&dialog_toolbar(&scrollable(&content))));
+    dialog.set_child(Some(&dialog_toolbar(&content)));
     dialog.present(Some(&ui.window));
 }
 
