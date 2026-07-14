@@ -181,7 +181,7 @@ pub(super) const AUDIO_BOOST_JS: &str = r#"
   if (window.__syltrAudioBoost) return;
   window.__syltrAudioBoost = true;
 
-  const GAIN = 2.5;
+  const GAIN = 4.0;
   let audioCtx;
   let gainNode;
 
@@ -201,7 +201,9 @@ pub(super) const AUDIO_BOOST_JS: &str = r#"
   }
 
   function boost(el) {
-    if (el.__syltrBoosted || el.tagName !== 'AUDIO' && el.tagName !== 'VIDEO') return;
+    if (!el || el.__syltrBoosted) return;
+    const tag = (el.tagName || '').toUpperCase();
+    if (tag !== 'AUDIO' && tag !== 'VIDEO') return;
     const ctx = ensureContext();
     if (!ctx) return;
     try {
@@ -213,15 +215,57 @@ pub(super) const AUDIO_BOOST_JS: &str = r#"
     }
   }
 
-  function scan() {
-    document.querySelectorAll('audio, video').forEach(boost);
+  function scan(root) {
+    root = root || document;
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('audio, video').forEach(boost);
+    root.querySelectorAll('*').forEach((el) => {
+      if (el.shadowRoot) scan(el.shadowRoot);
+    });
   }
 
-  const observer = new MutationObserver(scan);
+  // Hook the Audio constructor (some webapps create Audio objects in JS).
+  const OriginalAudio = window.Audio;
+  if (OriginalAudio) {
+    window.Audio = function (url) {
+      const el = new OriginalAudio(url);
+      boost(el);
+      return el;
+    };
+    window.Audio.prototype = OriginalAudio.prototype;
+  }
+
+  // Hook document.createElement for audio/video tags.
+  const originalCreateElement = document.createElement;
+  document.createElement = function (tagName) {
+    const el = originalCreateElement.call(this, tagName);
+    const tag = String(tagName).toUpperCase();
+    if (tag === 'AUDIO' || tag === 'VIDEO') boost(el);
+    return el;
+  };
+
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((m) => {
+      scan(m.target);
+      if (m.addedNodes) {
+        m.addedNodes.forEach((n) => {
+          if (n.nodeType === 1) scan(n);
+        });
+      }
+    });
+  });
   const root = document.body || document.documentElement;
   if (root) observer.observe(root, { subtree: true, childList: true });
 
-  // Also catch elements that are created before the observer starts.
+  ['click', 'touchstart', 'keydown'].forEach((evt) => {
+    document.addEventListener(evt, () => {
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+      scan();
+    }, { passive: true, capture: true });
+  });
+
+  setInterval(() => scan(), 2000);
+
   scan();
 })();
 "#;
