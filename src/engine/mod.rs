@@ -12,26 +12,32 @@ mod unread;
 mod user_agent;
 mod webapp_scripts;
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::rc::Rc;
 
+use gtk::gdk;
 use gtk::prelude::*;
 use webkit6::prelude::*;
 
-use crate::icon::ServiceIcon;
 use scripts::{run_js, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS};
 
-/// A single service's web view: its widget, WebKit view and rail icon.
+/// A callback invoked when a view's favicon or unread count changes.
+type ChangeCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
+
+/// A single service's web view: its widget, WebKit view and the observable
+/// state (favicon, unread count) the rail's grouped icon reads.
 #[derive(Clone)]
 pub struct ServiceView {
     root: gtk::Widget,
     webview: webkit6::WebView,
-    icon: ServiceIcon,
     /// Whether desktop notifications are forwarded (mute and DND both land here
     /// via [`ServiceView::set_notifications_enabled`]).
     notifications: Rc<Cell<bool>>,
     home: String,
+    unread: Rc<Cell<u32>>,
+    favicon: Rc<RefCell<Option<gdk::Texture>>>,
+    on_change: ChangeCallback,
 }
 
 impl ServiceView {
@@ -121,15 +127,29 @@ impl ServiceView {
             None::<gtk::Widget>
         });
 
-        let icon = ServiceIcon::new(name);
-        favicon::wire(&webview, &ucm, &icon);
+        let unread = Rc::new(Cell::new(0u32));
+        let favicon = Rc::new(RefCell::new(None::<gdk::Texture>));
+        let on_change: ChangeCallback = Rc::new(RefCell::new(None));
+        let notify: Rc<dyn Fn()> = {
+            let on_change = on_change.clone();
+            Rc::new(move || {
+                if let Some(f) = on_change.borrow().as_ref() {
+                    f();
+                }
+            })
+        };
 
-        // Unread badge: parse the count out of the page title.
+        favicon::wire(&webview, &ucm, favicon.clone(), notify.clone());
+
+        // Unread count parsed from the page title; observers (the rail's grouped
+        // icon) are notified so they can re-aggregate.
         {
-            let icon = icon.clone();
+            let unread = unread.clone();
+            let notify = notify.clone();
             webview.connect_title_notify(move |wv| {
                 let title = wv.title().map(|t| t.to_string()).unwrap_or_default();
-                icon.set_badge(unread::from_title(&title));
+                unread.set(unread::from_title(&title));
+                notify();
             });
         }
 
@@ -148,9 +168,11 @@ impl ServiceView {
         Self {
             root: webview.clone().upcast(),
             webview,
-            icon,
             notifications,
             home: url.to_string(),
+            unread,
+            favicon,
+            on_change,
         }
     }
 
@@ -163,8 +185,20 @@ impl ServiceView {
         &self.root
     }
 
-    pub fn icon(&self) -> &gtk::Widget {
-        self.icon.widget()
+    /// Current unread count (parsed from the page title).
+    pub fn unread(&self) -> u32 {
+        self.unread.get()
+    }
+
+    /// Current favicon texture, if one has loaded.
+    pub fn favicon(&self) -> Option<gdk::Texture> {
+        self.favicon.borrow().clone()
+    }
+
+    /// Registers a callback fired whenever this view's favicon or unread count
+    /// changes, so the rail can refresh the grouped icon.
+    pub fn set_on_change(&self, f: impl Fn() + 'static) {
+        *self.on_change.borrow_mut() = Some(Box::new(f));
     }
 
     pub fn reload(&self) {

@@ -122,6 +122,11 @@ pub fn build(app: &adw::Application) {
         }
     });
 
+    let ui_activated = ui.clone();
+    list.connect_row_activated(move |_, row| {
+        ui_activated.on_row_activated(row.index() as usize, row);
+    });
+
     ui.refresh_sidebar();
     window.present();
 }

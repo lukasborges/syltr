@@ -9,18 +9,23 @@ use super::widgets::menu_item;
 use super::Ui;
 
 impl Ui {
-    /// Shows the context menu for service `index`, anchored to `row`.
+    /// Shows the context menu for the group at `index`, anchored to `row`. It
+    /// acts on that group's active instance (selecting the group makes it
+    /// current first).
     pub(super) fn show_context_menu(&self, index: usize, row: &gtk::ListBoxRow, x: f64, y: f64) {
-        // The actions operate on the current service, so select the clicked one.
+        // Selecting the group makes its active instance current; the actions
+        // then operate on that instance.
         self.select_index(index);
 
-        let muted = self
-            .state
-            .borrow()
-            .services
-            .get(index)
-            .map(|s| s.muted)
-            .unwrap_or(false);
+        let current = self.state.borrow().current.clone();
+        let (svc_index, muted) = {
+            let st = self.state.borrow();
+            let idx = current
+                .as_deref()
+                .and_then(|id| st.services.iter().position(|s| s.id == id));
+            let muted = idx.map(|i| st.services[i].muted).unwrap_or(false);
+            (idx, muted)
+        };
 
         // Buttons call the methods directly — GAction resolution did not work in
         // a menu-model over CEF.
@@ -52,7 +57,11 @@ impl Ui {
             }
         });
         let edit = menu_item(&gettext("Edit service…"));
-        self.connect_menu_item(&edit, &popover, move |ui| show_edit_dialog(ui, index));
+        self.connect_menu_item(&edit, &popover, move |ui| {
+            if let Some(i) = svc_index {
+                show_edit_dialog(ui, i);
+            }
+        });
         let mute_label = if muted {
             gettext("Unmute notifications")
         } else {

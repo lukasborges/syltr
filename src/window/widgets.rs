@@ -110,7 +110,9 @@ pub(super) fn menu_item(label: &str) -> gtk::Button {
     button
 }
 
-/// A rail row: the service icon, centered, with the name as a hover tooltip.
+/// A rail row: the service (group) icon, centered, with the name as a hover
+/// tooltip. A service with several instances shows one icon with a stacked-card
+/// hint; clicking it opens the instance chooser.
 pub(super) fn service_row(svc: &Service, icon: &gtk::Widget) -> gtk::ListBoxRow {
     let bx = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)

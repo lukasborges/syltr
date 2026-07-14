@@ -224,7 +224,7 @@ fn catalog_groups(ui: &Ui, dialog: &adw::Dialog, search: &gtk::SearchEntry) -> g
             let name = entry.name.to_string();
             let url = entry.url.to_string();
             row.connect_activated(move |_| {
-                ui.add_service(&name, &url);
+                ui.begin_add(&name, &url);
                 dialog.close();
             });
 
@@ -286,10 +286,62 @@ fn custom_group(ui: &Ui, dialog: &adw::Dialog) -> (adw::PreferencesGroup, gtk::B
         if name.trim().is_empty() {
             name = gettext("Service");
         }
-        ui.add_service(&name, &url);
+        ui.begin_add(&name, &url);
         dialog.close();
     });
     (group, add_button)
+}
+
+/// Prompts for a distinct name when adding another instance of a service that
+/// already exists, so the copies can be told apart in the rail.
+pub(super) fn show_name_instance_dialog(ui: &Ui, url: &str, suggested: &str) {
+    let dialog = adw::Dialog::builder()
+        .title(gettext("Name this instance"))
+        .content_width(420)
+        .build();
+
+    let group = adw::PreferencesGroup::builder()
+        .description(gettext(
+            "You already have this service. Name this copy to tell them apart \
+             (e.g. \"Work\", \"Personal\").",
+        ))
+        .build();
+    let name_row = adw::EntryRow::builder().title(gettext("Name")).build();
+    name_row.set_text(suggested);
+    group.add(&name_row);
+
+    let add_button = gtk::Button::builder()
+        .label(gettext("Add"))
+        .halign(gtk::Align::End)
+        .margin_top(12)
+        .css_classes(["suggested-action"])
+        .build();
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(12)
+        .margin_bottom(18)
+        .margin_start(18)
+        .margin_end(18)
+        .build();
+    content.append(&group);
+    content.append(&add_button);
+
+    let ui_add = ui.clone();
+    let dialog_ref = dialog.clone();
+    let url = url.to_string();
+    add_button.connect_clicked(move |_| {
+        let mut name = name_row.text().to_string();
+        if name.trim().is_empty() {
+            name = gettext("Service");
+        }
+        ui_add.add_service(&name, &url);
+        dialog_ref.close();
+    });
+
+    dialog.set_child(Some(&dialog_toolbar(&content)));
+    dialog.present(Some(&ui.window));
 }
 
 pub(super) fn show_about(parent: &impl IsA<gtk::Widget>) {

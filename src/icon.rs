@@ -46,6 +46,16 @@ impl ServiceIcon {
         }
     }
 
+    /// Shows the "stacked cards" affordance behind the tile, marking a service
+    /// that holds more than one instance.
+    pub fn set_stacked(&self, stacked: bool) {
+        if stacked {
+            self.root.add_css_class("instance-stack");
+        } else {
+            self.root.remove_css_class("instance-stack");
+        }
+    }
+
     /// Sets the unread count shown in the badge (0 hides it).
     pub fn set_badge(&self, count: u32) {
         if count == 0 {

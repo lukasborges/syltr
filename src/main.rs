@@ -22,6 +22,17 @@ const STYLE: &str = "
     font-size: 15px;
 }
 
+/* Stacked-cards hint behind the icon of a service with 2+ instances. */
+.instance-stack {
+    border-radius: 11px;
+    box-shadow: 3px -3px 0 alpha(@window_fg_color, 0.18);
+}
+
+/* The active instance in the chooser popover. */
+.instance-current {
+    font-weight: bold;
+}
+
 /* Unread badge (top-right corner of the icon). */
 .unread-badge {
     background-color: #e01b24;

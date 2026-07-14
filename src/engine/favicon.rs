@@ -1,32 +1,40 @@
 //! Favicon wiring for the rail icon: WebKit's native favicon tracking as the
 //! fast path, plus the JS canvas rasterization (see `scripts::FAVICON_JS`) as
 //! the robust path — it handles SVG-only sites the native tracker misses.
+//!
+//! The texture is stored in a shared cell and observers are notified, so the
+//! rail's grouped icon can pick it up (several instances share one icon).
+
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use base64::Engine;
 use gtk::gdk;
 use webkit6::prelude::*;
 
-use crate::icon::ServiceIcon;
-
 pub(super) fn wire(
     webview: &webkit6::WebView,
     ucm: &webkit6::UserContentManager,
-    icon: &ServiceIcon,
+    store: Rc<RefCell<Option<gdk::Texture>>>,
+    notify: Rc<dyn Fn()>,
 ) {
+    let set: Rc<dyn Fn(Option<gdk::Texture>)> = Rc::new(move |texture| {
+        *store.borrow_mut() = texture;
+        notify();
+    });
+
     // Fast path: the raster favicon WebKit already tracks.
-    icon.set_favicon(webview.favicon().as_ref());
+    set(webview.favicon());
     {
-        let icon = icon.clone();
-        webview.connect_favicon_notify(move |wv| {
-            icon.set_favicon(wv.favicon().as_ref());
-        });
+        let set = set.clone();
+        webview.connect_favicon_notify(move |wv| set(wv.favicon()));
     }
     // Robust path: the page's real icon rasterized to PNG by the injected JS.
     {
-        let icon = icon.clone();
+        let set = set.clone();
         ucm.connect_script_message_received(Some("faviconReady"), move |_, value| {
             if let Some(texture) = png_data_url_to_texture(&value.to_str()) {
-                icon.set_favicon(Some(&texture));
+                set(Some(texture));
             }
         });
     }
