@@ -9,7 +9,7 @@
 
 pkgname=syltr
 pkgver=0.1.0
-pkgrel=19
+pkgrel=20
 pkgdesc="Agregador de serviços de mensagens — WebKitGTK 6 + GTK4"
 arch=('x86_64')
 url="https://github.com/lukasborges/syltr"
