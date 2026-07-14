@@ -20,7 +20,7 @@ use gtk::gdk;
 use gtk::prelude::*;
 use webkit6::prelude::*;
 
-use scripts::{run_js, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS};
+use scripts::{run_js, AUDIO_BOOST_JS, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS};
 
 /// A callback invoked when a view's favicon or unread count changes.
 type ChangeCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
@@ -70,6 +70,13 @@ impl ServiceView {
         ));
         ucm.add_script(&webkit6::UserScript::new(
             BLOB_MEDIA_JS,
+            webkit6::UserContentInjectedFrames::AllFrames,
+            webkit6::UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
+        ucm.add_script(&webkit6::UserScript::new(
+            AUDIO_BOOST_JS,
             webkit6::UserContentInjectedFrames::AllFrames,
             webkit6::UserScriptInjectionTime::Start,
             &[],

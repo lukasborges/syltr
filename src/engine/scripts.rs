@@ -172,6 +172,60 @@ pub(super) const BLOB_MEDIA_JS: &str = r#"
 })();
 "#;
 
+/// Boosts media volume by routing <audio>/<video> elements through a Web Audio
+/// GainNode. WebKitGTK 6.0 (2.52) does not expose a WebView volume property,
+/// and WhatsApp Web's voice messages often come out much quieter than the
+/// system level. The gain is applied to all media elements, current and future.
+pub(super) const AUDIO_BOOST_JS: &str = r#"
+(function () {
+  if (window.__syltrAudioBoost) return;
+  window.__syltrAudioBoost = true;
+
+  const GAIN = 1.5;
+  let audioCtx;
+  let gainNode;
+
+  function ensureContext() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      audioCtx = new AC();
+      gainNode = audioCtx.createGain();
+      gainNode.gain.value = GAIN;
+      gainNode.connect(audioCtx.destination);
+    }
+    if (audioCtx && audioCtx.state === 'suspended') {
+      audioCtx.resume().catch(() => {});
+    }
+    return audioCtx;
+  }
+
+  function boost(el) {
+    if (el.__syltrBoosted || el.tagName !== 'AUDIO' && el.tagName !== 'VIDEO') return;
+    const ctx = ensureContext();
+    if (!ctx) return;
+    try {
+      const src = ctx.createMediaElementSource(el);
+      src.connect(gainNode);
+      el.__syltrBoosted = true;
+    } catch (e) {
+      // Already connected to another AudioContext; leave it alone.
+    }
+  }
+
+  function scan() {
+    document.querySelectorAll('audio, video').forEach(boost);
+  }
+
+  const observer = new MutationObserver(scan);
+  const root = document.body || document.documentElement;
+  if (root) observer.observe(root, { subtree: true, childList: true });
+
+  // Also catch elements that are created before the observer starts.
+  scan();
+})();
+"#;
+
 /// Runs a script on the webview (fire-and-forget).
 pub(super) fn run_js(webview: &webkit6::WebView, script: &str) {
     webview.evaluate_javascript(script, None, None, None::<&gtk::gio::Cancellable>, |_| {});
