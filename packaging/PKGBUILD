@@ -1,18 +1,18 @@
 # Maintainer: Lucas Borges <lucas.borges@local>
 #
-# Syltr — agregador de serviços de mensagens com engine
-# WebKitGTK 6 + GTK4/libadwaita.
+# Syltr — messaging-service aggregator built on a WebKitGTK 6 +
+# GTK4/libadwaita engine.
 #
-# A engine é a webkitgtk-6.0 do sistema (pacote oficial do Arch): nada de
-# download de binário de engine no build. Mídia (H.264/AAC, vídeo do WhatsApp)
-# sai via GStreamer com os codecs do sistema — instale gst-libav.
+# The engine is the system's webkitgtk-6.0 (official Arch package): no engine
+# binary is downloaded at build time. Media (H.264/AAC, WhatsApp video) plays
+# through GStreamer using the system codecs — install gst-libav.
 
 pkgname=syltr
 pkgver=0.1.0
-pkgrel=15
+pkgrel=16
 pkgdesc="Agregador de serviços de mensagens — WebKitGTK 6 + GTK4"
 arch=('x86_64')
-url="https://github.com/lucasborges/syltr"
+url="https://github.com/lukasborges/syltr"
 license=('GPL-3.0-or-later')
 depends=(
   'gtk4' 'libadwaita' 'webkitgtk-6.0'
@@ -25,14 +25,14 @@ optdepends=(
 )
 makedepends=('rust' 'cargo' 'git' 'gettext' 'glib2')
 options=('strip' '!debug' '!lto')
-source=("$pkgname::git+file:///home/lucasborges/Projects/Syltr#branch=cef-spike")
+source=("$pkgname::git+https://github.com/lukasborges/syltr.git#branch=main")
 sha256sums=('SKIP')
 
 build() {
   cd "$srcdir/$pkgname"
   export CARGO_TARGET_DIR="$srcdir/target"
   cargo build --release
-  # Compila as traduções.
+  # Compile the translations.
   for po in po/*.po; do
     msgfmt "$po" -o "${po%.po}.mo"
   done
@@ -43,7 +43,7 @@ package() {
 
   install -Dm755 "$srcdir/target/release/syltr" "$pkgdir/usr/bin/syltr"
 
-  # .desktop, ícone e metainfo.
+  # .desktop entry, icon and metainfo.
   install -Dm644 data/dev.syltr.Syltr.desktop \
     "$pkgdir/usr/share/applications/dev.syltr.Syltr.desktop"
   install -Dm644 data/icons/dev.syltr.Syltr.svg \
@@ -51,7 +51,7 @@ package() {
   install -Dm644 data/dev.syltr.Syltr.metainfo.xml \
     "$pkgdir/usr/share/metainfo/dev.syltr.Syltr.metainfo.xml"
 
-  # Traduções em /usr/share/locale (o app faz bindtextdomain aí).
+  # Translations under /usr/share/locale (the app calls bindtextdomain there).
   for mo in po/*.mo; do
     local lang
     lang=$(basename "$mo" .mo)
