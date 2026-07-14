@@ -181,7 +181,7 @@ pub(super) const AUDIO_BOOST_JS: &str = r#"
   if (window.__syltrAudioBoost) return;
   window.__syltrAudioBoost = true;
 
-  const GAIN = 1.5;
+  const GAIN = 2.5;
   let audioCtx;
   let gainNode;
 
