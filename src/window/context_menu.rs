@@ -4,6 +4,7 @@ use adw::prelude::*;
 use gettextrs::gettext;
 use gtk::gdk;
 
+use super::dialogs::show_edit_dialog;
 use super::widgets::menu_item;
 use super::Ui;
 
@@ -50,6 +51,8 @@ impl Ui {
                 v.go_home();
             }
         });
+        let edit = menu_item(&gettext("Edit service…"));
+        self.connect_menu_item(&edit, &popover, move |ui| show_edit_dialog(ui, index));
         let mute_label = if muted {
             gettext("Unmute notifications")
         } else {
@@ -63,6 +66,7 @@ impl Ui {
         menu.append(&reload);
         menu.append(&home);
         menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        menu.append(&edit);
         menu.append(&mute);
         menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         menu.append(&remove);

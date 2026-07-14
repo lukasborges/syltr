@@ -40,6 +40,7 @@ impl ServiceView {
         id: &str,
         name: &str,
         url: &str,
+        user_agent: Option<&str>,
         session_dir: &Path,
         app: &adw::Application,
         dnd: Rc<Cell<bool>>,
@@ -49,7 +50,7 @@ impl ServiceView {
         let network_session = session::build(session_dir);
         session::wire_downloads(&network_session);
 
-        let settings = build_settings(url);
+        let settings = build_settings(&user_agent::for_service(url, user_agent));
 
         let ucm = webkit6::UserContentManager::new();
         ucm.register_script_message_handler("faviconReady", None);
@@ -191,11 +192,27 @@ impl ServiceView {
     pub fn set_spell_languages(&self, langs: &[String]) {
         apply_spell(&self.webview, langs);
     }
+
+    /// Applies a new user-agent to this service and reloads so the change takes
+    /// effect on the next navigation.
+    pub fn set_user_agent(&self, custom: Option<&str>) {
+        let ua = user_agent::for_service(&self.home, custom);
+        if let Some(settings) = webkit6::prelude::WebViewExt::settings(&self.webview) {
+            settings.set_user_agent(Some(&ua));
+        }
+        self.webview.reload();
+    }
 }
 
-fn build_settings(url: &str) -> webkit6::Settings {
+/// The user-agent a service resolves to for the given custom value (`None` =
+/// the built-in default). Used to show the effective default in the UI.
+pub fn resolve_user_agent(url: &str, custom: Option<&str>) -> String {
+    user_agent::for_service(url, custom)
+}
+
+fn build_settings(user_agent: &str) -> webkit6::Settings {
     let settings = webkit6::Settings::new();
-    settings.set_user_agent(Some(&user_agent::for_url(url)));
+    settings.set_user_agent(Some(user_agent));
     settings.set_enable_developer_extras(true);
     settings.set_enable_smooth_scrolling(true);
     settings.set_media_playback_requires_user_gesture(false);

@@ -5,7 +5,7 @@ use gettextrs::gettext;
 
 use super::widgets::{dialog_toolbar, scrollable, service_icon};
 use super::Ui;
-use crate::{catalog, spellcheck};
+use crate::{catalog, engine, spellcheck};
 
 impl Ui {
     pub(super) fn show_spell_dialog(&self) {
@@ -104,6 +104,93 @@ pub(super) fn show_add_dialog(ui: &Ui) {
     outer.append(&scrollable(&content));
 
     dialog.set_child(Some(&dialog_toolbar(&outer)));
+    dialog.present(Some(&ui.window));
+}
+
+/// The "Edit service" dialog: name, URL and an optional custom user-agent.
+/// Extensible — further per-service settings can be added as rows here.
+pub(super) fn show_edit_dialog(ui: &Ui, index: usize) {
+    let (name, url, custom_ua) = {
+        let st = ui.state.borrow();
+        let Some(svc) = st.services.get(index) else {
+            return;
+        };
+        (svc.name.clone(), svc.url.clone(), svc.user_agent.clone())
+    };
+
+    let dialog = adw::Dialog::builder()
+        .title(gettext("Edit service"))
+        .content_width(520)
+        .build();
+
+    let group = adw::PreferencesGroup::builder()
+        .title(gettext("Service"))
+        .build();
+    let name_row = adw::EntryRow::builder().title(gettext("Name")).build();
+    name_row.set_text(&name);
+    let url_row = adw::EntryRow::builder()
+        .title(gettext("URL (https://…)"))
+        .build();
+    url_row.set_text(&url);
+    group.add(&name_row);
+    group.add(&url_row);
+
+    let ua_group = adw::PreferencesGroup::builder()
+        .title(gettext("User agent"))
+        .description(gettext(
+            "Browser identification sent to this service. Leave empty to use the default.",
+        ))
+        .build();
+    let ua_row = adw::EntryRow::builder()
+        .title(gettext("Custom user agent"))
+        .build();
+    ua_row.set_text(custom_ua.as_deref().unwrap_or_default());
+    let default_row = adw::ActionRow::builder()
+        .title(gettext("Default"))
+        .subtitle(engine::resolve_user_agent(&url, None))
+        .build();
+    default_row.set_subtitle_selectable(true);
+    ua_group.add(&ua_row);
+    ua_group.add(&default_row);
+
+    let save_button = gtk::Button::builder()
+        .label(gettext("Save"))
+        .halign(gtk::Align::End)
+        .margin_top(12)
+        .css_classes(["suggested-action"])
+        .build();
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(18)
+        .margin_top(12)
+        .margin_bottom(18)
+        .margin_start(18)
+        .margin_end(18)
+        .build();
+    content.append(&group);
+    content.append(&ua_group);
+    content.append(&save_button);
+
+    let ui_save = ui.clone();
+    let dialog_ref = dialog.clone();
+    save_button.connect_clicked(move |_| {
+        let url = url_row.text().to_string();
+        if url.trim().is_empty() {
+            url_row.add_css_class("error");
+            return;
+        }
+        let mut name = name_row.text().to_string();
+        if name.trim().is_empty() {
+            name = gettext("Service");
+        }
+        let ua = ua_row.text().to_string();
+        let ua = (!ua.trim().is_empty()).then_some(ua);
+        ui_save.update_service(index, &name, &url, ua);
+        dialog_ref.close();
+    });
+
+    dialog.set_child(Some(&dialog_toolbar(&scrollable(&content))));
     dialog.present(Some(&ui.window));
 }
 

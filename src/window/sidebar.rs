@@ -20,6 +20,7 @@ impl Ui {
             &svc.id,
             &svc.name,
             &svc.url,
+            svc.user_agent.as_deref(),
             &config::session_dir(&svc.id),
             &self.app,
             self.dnd.clone(),
@@ -168,9 +169,46 @@ impl Ui {
             name: name.to_string(),
             url: config::normalize_url(url),
             muted: false,
+            user_agent: None,
         });
         self.save();
         self.state.borrow_mut().current = Some(id);
+        self.refresh_sidebar();
+    }
+
+    /// Applies edits from the "Edit service" dialog. A changed URL rebuilds the
+    /// view (so it loads the new home and UA); a changed UA alone just reloads
+    /// the live view; a name-only change just refreshes the rail.
+    pub(super) fn update_service(
+        &self,
+        index: usize,
+        name: &str,
+        url: &str,
+        user_agent: Option<String>,
+    ) {
+        let new_url = config::normalize_url(url);
+        let (id, url_changed, ua_changed) = {
+            let mut st = self.state.borrow_mut();
+            let Some(svc) = st.services.get_mut(index) else {
+                return;
+            };
+            let url_changed = svc.url != new_url;
+            let ua_changed = svc.user_agent != user_agent;
+            svc.name = name.to_string();
+            svc.url = new_url;
+            svc.user_agent = user_agent.clone();
+            (svc.id.clone(), url_changed, ua_changed)
+        };
+        if url_changed {
+            if let Some(view) = self.state.borrow_mut().views.remove(&id) {
+                self.stack.remove(view.widget());
+            }
+        } else if ua_changed {
+            if let Some(view) = self.state.borrow().views.get(&id) {
+                view.set_user_agent(user_agent.as_deref());
+            }
+        }
+        self.save();
         self.refresh_sidebar();
     }
 

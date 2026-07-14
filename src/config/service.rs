@@ -14,6 +14,10 @@ pub struct Service {
     pub url: String,
     #[serde(default)]
     pub muted: bool,
+    /// Custom user-agent for this service; falls back to the built-in resolver
+    /// (see `engine::user_agent`) when `None` or empty.
+    #[serde(default)]
+    pub user_agent: Option<String>,
 }
 
 fn services_file() -> PathBuf {
@@ -57,6 +61,7 @@ fn default_services() -> Vec<Service> {
             name: e.name.to_string(),
             url: e.url.to_string(),
             muted: false,
+            user_agent: None,
         })
         .collect()
 }
