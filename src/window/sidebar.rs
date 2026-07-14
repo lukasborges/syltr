@@ -203,11 +203,16 @@ impl Ui {
 
     /// Shows the given group's active instance — the current one if it belongs
     /// to the group, otherwise the first. Wired to row selection.
+    /// For groups with multiple instances the row click only opens the chooser
+    /// popover, so selection here does nothing.
     pub(super) fn show_service_at(&self, group_idx: usize) {
         let groups = self.groups();
         let Some(group) = groups.get(group_idx) else {
             return;
         };
+        if group.len() > 1 {
+            return;
+        }
         let current = self.state.borrow().current.clone();
         let active = group
             .iter()
