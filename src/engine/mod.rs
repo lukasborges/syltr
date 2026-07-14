@@ -9,6 +9,7 @@ mod favicon;
 mod scripts;
 mod session;
 mod unread;
+mod user_agent;
 mod webapp_scripts;
 
 use std::cell::Cell;
@@ -48,7 +49,7 @@ impl ServiceView {
         let network_session = session::build(session_dir);
         session::wire_downloads(&network_session);
 
-        let settings = build_settings();
+        let settings = build_settings(url);
 
         let ucm = webkit6::UserContentManager::new();
         ucm.register_script_message_handler("faviconReady", None);
@@ -192,8 +193,9 @@ impl ServiceView {
     }
 }
 
-fn build_settings() -> webkit6::Settings {
+fn build_settings(url: &str) -> webkit6::Settings {
     let settings = webkit6::Settings::new();
+    settings.set_user_agent(Some(&user_agent::for_url(url)));
     settings.set_enable_developer_extras(true);
     settings.set_enable_smooth_scrolling(true);
     settings.set_media_playback_requires_user_gesture(false);
