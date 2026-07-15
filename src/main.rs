@@ -28,6 +28,16 @@ const STYLE: &str = "
     box-shadow: 3px -3px 0 alpha(@window_fg_color, 0.18);
 }
 
+/* A disabled service: dimmed tile in the rail. */
+.service-disabled {
+    opacity: 0.4;
+}
+
+/* Do-not-disturb toggle: red icon while active. */
+.dnd-toggle:checked {
+    color: #e01b24;
+}
+
 /* The active instance in the chooser popover. */
 .instance-current {
     font-weight: bold;

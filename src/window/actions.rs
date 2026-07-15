@@ -28,7 +28,6 @@ pub(super) fn wire_actions(app: &adw::Application, ui: &Ui) {
             view.go_home();
         }
     });
-    add_action(ui, "remove-service", Ui::remove_current);
     add_action(ui, "spell-languages", Ui::show_spell_dialog);
 
     add_toggle_action(ui, "mute", false, |ui, muted| ui.set_current_muted(muted));

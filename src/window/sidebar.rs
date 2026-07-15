@@ -9,7 +9,7 @@ use gtk::{gdk, glib};
 
 use super::dialogs::show_name_instance_dialog;
 use super::widgets::{menu_item, service_row};
-use super::{Ui, EMPTY_PAGE};
+use super::{Ui, DISABLED_PAGE, EMPTY_PAGE};
 use crate::config::{self, Service};
 use crate::icon::ServiceIcon;
 use crate::{catalog, engine};
@@ -66,12 +66,16 @@ impl Ui {
         }
         let groups = self.groups();
         for (i, group) in groups.iter().enumerate() {
-            let views: Vec<engine::ServiceView> =
-                group.iter().map(|svc| self.ensure_view(svc)).collect();
+            let views: Vec<engine::ServiceView> = group
+                .iter()
+                .filter(|svc| !svc.disabled)
+                .map(|svc| self.ensure_view(svc))
+                .collect();
             let rep = &group[0];
 
             let icon = ServiceIcon::new(&rep.name);
             icon.set_stacked(group.len() > 1);
+            icon.set_dimmed(views.is_empty());
 
             // The grouped icon aggregates the unread of every instance and shows
             // the shared favicon; any instance's change re-runs this.
@@ -218,11 +222,15 @@ impl Ui {
             .iter()
             .find(|s| current.as_deref() == Some(s.id.as_str()))
             .unwrap_or(&group[0]);
-        self.show_instance(&active.id, &active.name);
+        self.show_instance(&active.id, &active.name, active.disabled);
     }
 
-    fn show_instance(&self, id: &str, name: &str) {
-        self.stack.set_visible_child_name(id);
+    fn show_instance(&self, id: &str, name: &str, disabled: bool) {
+        if disabled {
+            self.stack.set_visible_child_name(DISABLED_PAGE);
+        } else {
+            self.stack.set_visible_child_name(id);
+        }
         self.title.set_title(name);
         self.state.borrow_mut().current = Some(id.to_string());
         self.split.set_show_content(true);
@@ -281,9 +289,10 @@ impl Ui {
             let pop = popover.clone();
             let id = svc.id.clone();
             let name = svc.name.clone();
+            let disabled = svc.disabled;
             item.connect_clicked(move |_| {
                 pop.popdown();
-                ui.show_instance(&id, &name);
+                ui.show_instance(&id, &name, disabled);
             });
             menu.append(&item);
         }
@@ -339,6 +348,7 @@ impl Ui {
             name: name.to_string(),
             url: config::normalize_url(url),
             muted: false,
+            disabled: false,
             user_agent: None,
         });
         self.save();
@@ -376,6 +386,28 @@ impl Ui {
         } else if ua_changed {
             if let Some(view) = self.state.borrow().views.get(&id) {
                 view.set_user_agent(user_agent.as_deref());
+            }
+        }
+        self.save();
+        self.refresh_sidebar();
+    }
+
+    /// Enables/disables the current service. Disabling frees its web view (no
+    /// resources, no notifications); the service stays in the list, dimmed in the
+    /// rail, and re-enabling reloads it.
+    pub(super) fn set_current_disabled(&self, disabled: bool) {
+        let Some(id) = self.state.borrow().current.clone() else {
+            return;
+        };
+        {
+            let mut st = self.state.borrow_mut();
+            if let Some(svc) = st.services.iter_mut().find(|s| s.id == id) {
+                svc.disabled = disabled;
+            }
+            if disabled {
+                if let Some(view) = st.views.remove(&id) {
+                    self.stack.remove(view.widget());
+                }
             }
         }
         self.save();

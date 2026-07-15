@@ -14,6 +14,10 @@ pub struct Service {
     pub url: String,
     #[serde(default)]
     pub muted: bool,
+    /// A disabled service stays in the list but loads no web view (no resources,
+    /// no notifications) until re-enabled from its context menu.
+    #[serde(default)]
+    pub disabled: bool,
     /// Custom user-agent for this service; falls back to the built-in resolver
     /// (see `engine::user_agent`) when `None` or empty.
     #[serde(default)]
@@ -61,6 +65,7 @@ fn default_services() -> Vec<Service> {
             name: e.name.to_string(),
             url: e.url.to_string(),
             muted: false,
+            disabled: false,
             user_agent: None,
         })
         .collect()

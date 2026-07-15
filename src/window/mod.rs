@@ -26,6 +26,7 @@ use crate::config::{self, Service};
 use crate::engine;
 
 const EMPTY_PAGE: &str = "__empty__";
+const DISABLED_PAGE: &str = "__disabled__";
 
 /// Fixed width of the icon-only side rail.
 const RAIL_WIDTH: f64 = 84.0;

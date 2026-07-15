@@ -56,6 +56,15 @@ impl ServiceIcon {
         }
     }
 
+    /// Dims the tile to mark a disabled service.
+    pub fn set_dimmed(&self, dimmed: bool) {
+        if dimmed {
+            self.root.add_css_class("service-disabled");
+        } else {
+            self.root.remove_css_class("service-disabled");
+        }
+    }
+
     /// Sets the unread count shown in the badge (0 hides it).
     pub fn set_badge(&self, count: u32) {
         if count == 0 {

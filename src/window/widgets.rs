@@ -5,7 +5,7 @@ use adw::prelude::*;
 use gettextrs::gettext;
 use gtk::gio;
 
-use super::EMPTY_PAGE;
+use super::{DISABLED_PAGE, EMPTY_PAGE};
 use crate::catalog;
 use crate::config::Service;
 
@@ -28,6 +28,7 @@ pub(super) fn build_content_stack() -> gtk::Stack {
         .hexpand(true)
         .build();
     stack.add_named(&empty_state(), Some(EMPTY_PAGE));
+    stack.add_named(&disabled_state(), Some(DISABLED_PAGE));
     stack
 }
 
@@ -38,6 +39,11 @@ pub(super) fn build_primary_header(title: &adw::WindowTitle) -> adw::HeaderBar {
         .tooltip_text(gettext("Main menu"))
         .menu_model(&primary_menu())
         .primary(true)
+        .build();
+    let add_button = gtk::Button::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text(gettext("Add service"))
+        .action_name("win.add-service")
         .build();
     let back_button = gtk::Button::builder()
         .icon_name("go-previous-symbolic")
@@ -56,16 +62,31 @@ pub(super) fn build_primary_header(title: &adw::WindowTitle) -> adw::HeaderBar {
         .build();
     let home_button = gtk::Button::builder()
         .icon_name("go-home-symbolic")
-        .tooltip_text(gettext("Service home"))
+        .tooltip_text(gettext("Go to home"))
         .action_name("win.home")
         .build();
+    let dnd_button = gtk::ToggleButton::builder()
+        .icon_name("preferences-system-notifications-symbolic")
+        .tooltip_text(gettext("Do not disturb"))
+        .action_name("win.toggle-dnd")
+        .css_classes(["dnd-toggle"])
+        .build();
+    dnd_button.connect_toggled(|button| {
+        button.set_icon_name(if button.is_active() {
+            "notifications-disabled-symbolic"
+        } else {
+            "preferences-system-notifications-symbolic"
+        });
+    });
 
     let header = adw::HeaderBar::new();
     header.pack_start(&menu_button);
+    header.pack_start(&add_button);
     header.pack_start(&back_button);
     header.pack_start(&forward_button);
     header.pack_start(&reload_button);
     header.pack_start(&home_button);
+    header.pack_end(&dnd_button);
     header.set_title_widget(Some(title));
     header
 }
@@ -145,19 +166,21 @@ pub(super) fn empty_state() -> adw::StatusPage {
         .build()
 }
 
+/// The page shown when the selected service is disabled.
+pub(super) fn disabled_state() -> adw::StatusPage {
+    adw::StatusPage::builder()
+        .icon_name("action-unavailable-symbolic")
+        .title(gettext("Service disabled"))
+        .description(gettext(
+            "Enable this service from its right-click menu in the rail.",
+        ))
+        .build()
+}
+
 pub(super) fn primary_menu() -> gio::Menu {
     let menu = gio::Menu::new();
 
-    let services = gio::Menu::new();
-    services.append(Some(&gettext("Add service")), Some("win.add-service"));
-    services.append(
-        Some(&gettext("Remove current service")),
-        Some("win.remove-service"),
-    );
-    menu.append_section(None, &services);
-
     let preferences = gio::Menu::new();
-    preferences.append(Some(&gettext("Do not disturb")), Some("win.toggle-dnd"));
     preferences.append(
         Some(&gettext("Spell-check languages…")),
         Some("win.spell-languages"),

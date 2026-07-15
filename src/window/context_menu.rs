@@ -18,13 +18,14 @@ impl Ui {
         self.select_index(index);
 
         let current = self.state.borrow().current.clone();
-        let (svc_index, muted) = {
+        let (svc_index, muted, disabled) = {
             let st = self.state.borrow();
             let idx = current
                 .as_deref()
                 .and_then(|id| st.services.iter().position(|s| s.id == id));
             let muted = idx.map(|i| st.services[i].muted).unwrap_or(false);
-            (idx, muted)
+            let disabled = idx.map(|i| st.services[i].disabled).unwrap_or(false);
+            (idx, muted, disabled)
         };
 
         // Buttons call the methods directly — GAction resolution did not work in
@@ -50,7 +51,7 @@ impl Ui {
                 v.reload();
             }
         });
-        let home = menu_item(&gettext("Service home"));
+        let home = menu_item(&gettext("Go to home"));
         self.connect_menu_item(&home, &popover, |ui| {
             if let Some(v) = ui.current_view() {
                 v.go_home();
@@ -69,6 +70,15 @@ impl Ui {
         };
         let mute = menu_item(&mute_label);
         self.connect_menu_item(&mute, &popover, move |ui| ui.set_current_muted(!muted));
+        let disable_label = if disabled {
+            gettext("Enable service")
+        } else {
+            gettext("Disable service")
+        };
+        let disable = menu_item(&disable_label);
+        self.connect_menu_item(&disable, &popover, move |ui| {
+            ui.set_current_disabled(!disabled)
+        });
         let remove = menu_item(&gettext("Remove service"));
         self.connect_menu_item(&remove, &popover, |ui| ui.remove_current());
 
@@ -77,6 +87,7 @@ impl Ui {
         menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         menu.append(&edit);
         menu.append(&mute);
+        menu.append(&disable);
         menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         menu.append(&remove);
 

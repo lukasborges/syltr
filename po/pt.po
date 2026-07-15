@@ -11,8 +11,8 @@ msgstr "Menu principal"
 msgid "Reload"
 msgstr "Recarregar"
 
-msgid "Service home"
-msgstr "Início do serviço"
+msgid "Go to home"
+msgstr "Ir para início"
 
 msgid "Services"
 msgstr "Serviços"
@@ -25,9 +25,6 @@ msgstr "Nenhum serviço"
 
 msgid "Add a messaging service to get started."
 msgstr "Adicione um serviço de mensagens para começar."
-
-msgid "Remove current service"
-msgstr "Remover serviço atual"
 
 msgid "Do not disturb"
 msgstr "Não perturbe"
@@ -49,6 +46,18 @@ msgstr "Silenciar notificações"
 
 msgid "Unmute notifications"
 msgstr "Reativar notificações"
+
+msgid "Disable service"
+msgstr "Desativar serviço"
+
+msgid "Enable service"
+msgstr "Ativar serviço"
+
+msgid "Service disabled"
+msgstr "Serviço desativado"
+
+msgid "Enable this service from its right-click menu in the rail."
+msgstr "Ative este serviço pelo menu de contexto na barra lateral."
 
 msgid "Remove service"
 msgstr "Remover serviço"
