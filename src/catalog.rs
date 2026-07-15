@@ -68,68 +68,33 @@ pub const CATALOG: &[Entry] = &[
         "instagram",
         "Instagram",
         "https://www.instagram.com/direct/inbox/",
-        "Social",
+        "Messaging",
     ),
     entry(
         "linkedin",
         "LinkedIn",
         "https://www.linkedin.com/messaging/",
-        "Social",
+        "Messaging",
     ),
-    entry("x", "X", "https://x.com/messages", "Social"),
-    entry("reddit", "Reddit", "https://www.reddit.com/", "Social"),
-    entry("twitch", "Twitch", "https://www.twitch.tv/", "Social"),
-    entry("gmail", "Gmail", "https://mail.google.com/", "Google"),
+    entry("x", "X", "https://x.com/messages", "Messaging"),
     entry(
-        "gcalendar",
-        "Google Calendar",
-        "https://calendar.google.com/",
-        "Google",
-    ),
-    entry("gchat", "Google Chat", "https://chat.google.com/", "Google"),
-    entry("gmeet", "Google Meet", "https://meet.google.com/", "Google"),
-    entry(
-        "gdrive",
-        "Google Drive",
-        "https://drive.google.com/",
-        "Google",
-    ),
-    entry("gdocs", "Google Docs", "https://docs.google.com/", "Google"),
-    entry(
-        "gvoice",
-        "Google Voice",
-        "https://voice.google.com/",
-        "Google",
-    ),
-    entry(
-        "gphotos",
-        "Google Photos",
-        "https://photos.google.com/",
-        "Google",
+        "gchat",
+        "Google Chat",
+        "https://chat.google.com/",
+        "Messaging",
     ),
     entry(
         "teams",
         "Microsoft Teams",
         "https://teams.microsoft.com/",
-        "Microsoft",
+        "Messaging",
     ),
+    entry("gmail", "Gmail", "https://mail.google.com/", "Email"),
     entry(
         "outlook",
         "Outlook",
         "https://outlook.live.com/mail/",
-        "Microsoft",
-    ),
-    entry(
-        "onedrive",
-        "OneDrive",
-        "https://onedrive.live.com/",
-        "Microsoft",
-    ),
-    entry(
-        "mstodo",
-        "Microsoft To Do",
-        "https://to-do.office.com/",
-        "Microsoft",
+        "Email",
     ),
     entry("proton", "Proton Mail", "https://mail.proton.me/", "Email"),
     entry("tuta", "Tuta (Tutanota)", "https://app.tuta.com/", "Email"),
@@ -147,22 +112,22 @@ pub const CATALOG: &[Entry] = &[
         "https://www.icloud.com/mail",
         "Email",
     ),
-    entry("notion", "Notion", "https://www.notion.so/", "Productivity"),
-    entry("trello", "Trello", "https://trello.com/", "Productivity"),
     entry(
-        "todoist",
-        "Todoist",
-        "https://app.todoist.com/",
-        "Productivity",
+        "gcalendar",
+        "Google Calendar",
+        "https://calendar.google.com/",
+        "Calendar",
     ),
-    entry("asana", "Asana", "https://app.asana.com/", "Productivity"),
     entry(
-        "clickup",
-        "ClickUp",
-        "https://app.clickup.com/",
-        "Productivity",
+        "mstodo",
+        "Microsoft To Do",
+        "https://to-do.office.com/",
+        "Tasks",
     ),
-    entry("linear", "Linear", "https://linear.app/", "Productivity"),
+    entry("todoist", "Todoist", "https://app.todoist.com/", "Tasks"),
+    entry("trello", "Trello", "https://trello.com/", "Tasks"),
+    entry("asana", "Asana", "https://app.asana.com/", "Tasks"),
+    entry("clickup", "ClickUp", "https://app.clickup.com/", "Tasks"),
     entry("chatgpt", "ChatGPT", "https://chatgpt.com/", "AI"),
     entry("claude", "Claude", "https://claude.ai/", "AI"),
     entry("gemini", "Gemini", "https://gemini.google.com/", "AI"),
@@ -199,28 +164,6 @@ pub fn categories() -> Vec<&'static str> {
     ordered
 }
 
-/// Services the app starts with on first run.
-pub const DEFAULT_KEYS: &[&str] = &[
-    // Messaging
-    "whatsapp",
-    "telegram",
-    // Google
-    "gmail",
-    "gcalendar",
-    "gchat",
-    "gmeet",
-    // Microsoft
-    "teams",
-    // AI
-    "chatgpt",
-    "deepseek",
-    "perplexity",
-];
-
-pub fn find(key: &str) -> Option<&'static Entry> {
-    CATALOG.iter().find(|e| e.key == key)
-}
-
 const fn entry(
     key: &'static str,
     name: &'static str,
@@ -232,5 +175,31 @@ const fn entry(
         name,
         url,
         category,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{categories, CATALOG};
+
+    #[test]
+    fn catalog_only_contains_supported_service_categories() {
+        assert_eq!(
+            categories(),
+            ["Messaging", "Email", "Calendar", "Tasks", "AI"]
+        );
+        assert!(CATALOG.iter().all(|entry| matches!(
+            entry.category,
+            "Messaging" | "Email" | "Calendar" | "Tasks" | "AI"
+        )));
+    }
+
+    #[test]
+    fn catalog_excludes_video_conference_only_services() {
+        let excluded = ["gmeet", "zoom", "whereby"];
+
+        assert!(excluded
+            .iter()
+            .all(|key| CATALOG.iter().all(|entry| entry.key != *key)));
     }
 }

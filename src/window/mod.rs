@@ -62,8 +62,10 @@ pub fn build(app: &adw::Application) {
     }
 
     let settings = config::load_settings();
+    let loaded_services = config::load();
+    let first_run = loaded_services.first_run;
     let state = Rc::new(RefCell::new(State {
-        services: config::load(),
+        services: loaded_services.services,
         views: HashMap::new(),
         current: None,
     }));
@@ -130,4 +132,9 @@ pub fn build(app: &adw::Application) {
 
     ui.refresh_sidebar();
     window.present();
+
+    if first_run {
+        let ui_add = ui.clone();
+        gtk::glib::idle_add_local_once(move || dialogs::show_add_dialog(&ui_add));
+    }
 }

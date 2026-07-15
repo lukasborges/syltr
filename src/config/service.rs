@@ -1,10 +1,10 @@
 //! The service list, persisted as JSON in `<config>/services.json`.
 
 use serde::{Deserialize, Serialize};
+use std::io::ErrorKind;
 use std::path::PathBuf;
 
 use super::config_dir;
-use crate::catalog;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Service {
@@ -24,20 +24,46 @@ pub struct Service {
     pub user_agent: Option<String>,
 }
 
+pub struct LoadedServices {
+    pub services: Vec<Service>,
+    pub first_run: bool,
+}
+
 fn services_file() -> PathBuf {
     config_dir().join("services.json")
 }
 
-pub fn load() -> Vec<Service> {
-    if let Ok(text) = std::fs::read_to_string(services_file()) {
-        if let Ok(list) = serde_json::from_str::<Vec<Service>>(&text) {
-            return list;
+pub fn load() -> LoadedServices {
+    match std::fs::read_to_string(services_file()) {
+        Ok(text) => match serde_json::from_str::<Vec<Service>>(&text) {
+            Ok(services) => LoadedServices {
+                services,
+                first_run: false,
+            },
+            Err(e) => {
+                eprintln!("syltr: failed to parse services, starting empty: {e}");
+                LoadedServices {
+                    services: Vec::new(),
+                    first_run: false,
+                }
+            }
+        },
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            let services = Vec::new();
+            save(&services);
+            LoadedServices {
+                services,
+                first_run: true,
+            }
+        }
+        Err(e) => {
+            eprintln!("syltr: failed to read services, starting empty: {e}");
+            LoadedServices {
+                services: Vec::new(),
+                first_run: false,
+            }
         }
     }
-    // First run: seed with the default services and persist them.
-    let defaults = default_services();
-    save(&defaults);
-    defaults
 }
 
 pub fn save(list: &[Service]) {
@@ -54,21 +80,6 @@ pub fn save(list: &[Service]) {
         }
         Err(e) => eprintln!("syltr: failed to serialize services: {e}"),
     }
-}
-
-fn default_services() -> Vec<Service> {
-    catalog::DEFAULT_KEYS
-        .iter()
-        .filter_map(|k| catalog::find(k))
-        .map(|e| Service {
-            id: e.key.to_string(),
-            name: e.name.to_string(),
-            url: e.url.to_string(),
-            muted: false,
-            disabled: false,
-            user_agent: None,
-        })
-        .collect()
 }
 
 /// Generates a unique id from a name/base, avoiding collisions with existing ones.
