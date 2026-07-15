@@ -265,6 +265,7 @@ fn build_settings(user_agent: &str) -> webkit6::Settings {
     settings.set_enable_developer_extras(true);
     settings.set_enable_smooth_scrolling(true);
     settings.set_media_playback_requires_user_gesture(false);
+    settings.set_javascript_can_access_clipboard(true);
     if std::env::var_os("SYLTR_SW_RENDER").is_some() {
         settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
     }
