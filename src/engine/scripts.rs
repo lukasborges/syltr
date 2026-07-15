@@ -311,34 +311,62 @@ pub(super) const AUDIO_BOOST_JS: &str = r#"
 })();
 "#;
 
-pub(super) const MEDIA_SESSION_SUPPRESS_JS: &str = r#"
+/// Best-effort suppression of the GNOME media-player (MPRIS) card that
+/// WebKitGTK publishes whenever an `HTMLMediaElement` plays audibly. The card
+/// is registered natively by the web process, so there is no WebKit setting to
+/// disable it; the only lever left is to avoid the media element entirely for
+/// the sounds that trigger it. Short UI sounds — notably the WhatsApp message
+/// chime — are played via `new Audio()`, so route those through Web Audio
+/// (which never creates a media session) and fall back to native playback if
+/// decoding fails. Real `<audio>`/`<video>` elements (voice notes, video,
+/// calls) are left untouched.
+pub(super) const SUPPRESS_MPRIS_JS: &str = r#"
 (function () {
-  if (window.__syltrMediaSessionSuppressed) return;
-  window.__syltrMediaSessionSuppressed = true;
+  if (window.__syltrMprisGuard) return;
+  window.__syltrMprisGuard = true;
 
   try {
-    const dummy = {};
-    const nope = function () {};
-    Object.defineProperty(navigator, 'mediaSession', {
-      configurable: true,
-      enumerable: true,
-      get: () => dummy,
-      set: nope,
-    });
-    ['metadata', 'playbackState'].forEach((p) => {
-      Object.defineProperty(dummy, p, {
-        configurable: true,
-        enumerable: true,
-        get: () => null,
-        set: nope,
-      });
-    });
-    dummy.setActionHandler = nope;
-    dummy.setPositionState = nope;
-    dummy.setCameraActive = nope;
-    dummy.setMicrophoneActive = nope;
-    dummy.setQueue = nope;
-    dummy.setActiveQueueItem = nope;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const WrappedAudio = window.Audio;
+    if (!AC || !WrappedAudio) return;
+
+    let ctx;
+    const context = () => {
+      if (!ctx) ctx = new AC();
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      return ctx;
+    };
+
+    const buffers = new Map();
+    const bufferFor = (url) => {
+      if (!buffers.has(url)) {
+        buffers.set(
+          url,
+          fetch(url).then((r) => r.arrayBuffer()).then((d) => context().decodeAudioData(d))
+        );
+      }
+      return buffers.get(url);
+    };
+
+    window.Audio = function (url) {
+      const el = new WrappedAudio(url);
+      const nativePlay = el.play.bind(el);
+      el.play = function () {
+        const src = el.currentSrc || el.src;
+        if (!src) return nativePlay();
+        return bufferFor(src).then((buffer) => {
+          const c = context();
+          const node = c.createBufferSource();
+          node.buffer = buffer;
+          const gain = c.createGain();
+          gain.gain.value = 4.0;
+          node.connect(gain).connect(c.destination);
+          node.start();
+        }).catch(() => nativePlay());
+      };
+      return el;
+    };
+    window.Audio.prototype = WrappedAudio.prototype;
   } catch (e) {}
 })();
 "#;

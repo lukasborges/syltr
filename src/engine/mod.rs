@@ -21,8 +21,7 @@ use gtk::prelude::*;
 use webkit6::prelude::*;
 
 use scripts::{
-    run_js, AUDIO_BOOST_JS, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS,
-    MEDIA_SESSION_SUPPRESS_JS,
+    run_js, AUDIO_BOOST_JS, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS, SUPPRESS_MPRIS_JS,
 };
 
 /// A callback invoked when a view's favicon or unread count changes.
@@ -87,7 +86,7 @@ impl ServiceView {
             &[],
         ));
         ucm.add_script(&webkit6::UserScript::new(
-            MEDIA_SESSION_SUPPRESS_JS,
+            SUPPRESS_MPRIS_JS,
             webkit6::UserContentInjectedFrames::AllFrames,
             webkit6::UserScriptInjectionTime::Start,
             &[],
@@ -285,12 +284,8 @@ fn enable_runtime_features(settings: &webkit6::Settings) {
             .identifier()
             .map(|s| s.to_string())
             .unwrap_or_default();
-        let id = id.to_lowercase();
-        if id.contains("idlecallback") {
+        if id.to_lowercase().contains("idlecallback") {
             settings.set_feature_enabled(&feature, true);
-        }
-        if id.contains("mediasession") {
-            settings.set_feature_enabled(&feature, false);
         }
     }
 }
