@@ -40,7 +40,9 @@ pub(super) const FAVICON_JS: &str = r#"
 ///    to the native side via the `syltrNotify` handler. WebKitGTK only grants
 ///    the real permission from a user gesture and never persists it for the
 ///    isolated per-service sessions, so `new Notification()` silently failed;
-///    the shim reports permission as granted and delivers every notification.
+///    the shim reports permission as granted via both the Notification and
+///    Permissions APIs, and also forwards `showNotification()` calls used by
+///    service-worker based apps.
 /// 2) polyfills requestIdleCallback/cancelIdleCallback for pages where the
 ///    native feature flag doesn't take (Microsoft Teams breaks without it).
 pub(super) const COMPAT_JS: &str = r#"
@@ -54,6 +56,15 @@ pub(super) const COMPAT_JS: &str = r#"
       } catch (e) {
         return false;
       }
+    };
+    const dispatchNotification = (title, options) => {
+      options = options || {};
+      return post({
+        id: ++seq,
+        title: String(title == null ? '' : title),
+        body: options.body || '',
+        tag: options.tag || '',
+      });
     };
     class SyltrNotification extends EventTarget {
       constructor(title, options) {
@@ -71,7 +82,7 @@ pub(super) const COMPAT_JS: &str = r#"
         this.onshow = null;
         this.onclose = null;
         this.onerror = null;
-        const ok = post({ id: ++seq, title: this.title, body: this.body, tag: this.tag });
+        const ok = dispatchNotification(this.title, options);
         Promise.resolve().then(() => {
           const ev = new Event(ok ? 'show' : 'error');
           this.dispatchEvent(ev);
@@ -92,6 +103,31 @@ pub(super) const COMPAT_JS: &str = r#"
       return Promise.resolve('granted');
     };
     window.Notification = SyltrNotification;
+
+    if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+      const query = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = function (descriptor) {
+        const name = descriptor && String(descriptor.name || '').toLowerCase();
+        if (name === 'notifications') {
+          const status = new EventTarget();
+          Object.defineProperty(status, 'name', { get: () => 'notifications' });
+          Object.defineProperty(status, 'state', { get: () => 'granted' });
+          status.onchange = null;
+          return Promise.resolve(status);
+        }
+        return query(descriptor);
+      };
+    }
+
+    if (window.ServiceWorkerRegistration && ServiceWorkerRegistration.prototype) {
+      ServiceWorkerRegistration.prototype.showNotification = function (title, options) {
+        dispatchNotification(title, options);
+        return Promise.resolve();
+      };
+      ServiceWorkerRegistration.prototype.getNotifications = function () {
+        return Promise.resolve([]);
+      };
+    }
   } catch (e) {}
   try {
     if (typeof window.requestIdleCallback !== 'function') {
