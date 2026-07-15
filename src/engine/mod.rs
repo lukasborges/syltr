@@ -134,12 +134,10 @@ impl ServiceView {
 
         wire_link_clicks(&webview);
 
-        // window.open (auth popups) navigates the service's own webview, so
-        // login cookies stay in its session.
-        webview.connect_create(|wv, action| {
+        webview.connect_create(|_wv, action| {
             if let Some(uri) = action.request().and_then(|r| r.uri()) {
                 if !uri.is_empty() {
-                    wv.load_uri(&uri);
+                    open_in_default_browser(&uri);
                 }
             }
             None::<gtk::Widget>
