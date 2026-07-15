@@ -351,7 +351,8 @@ pub(super) fn show_about(parent: &impl IsA<gtk::Widget>) {
         .developer_name("Lucas Borges")
         .version(env!("CARGO_PKG_VERSION"))
         .comments(gettext("All-in-one messaging aggregator for GNOME."))
-        .website("https://github.com/")
+        .website("https://github.com/lukasborges/syltr")
+        .issue_url("https://github.com/lukasborges/syltr/issues")
         .license_type(gtk::License::Gpl30)
         .build();
     about.present(Some(parent));
