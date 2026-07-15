@@ -311,19 +311,39 @@ pub(super) const AUDIO_BOOST_JS: &str = r#"
 })();
 "#;
 
-/// Best-effort suppression of the GNOME media-player (MPRIS) card that
-/// WebKitGTK publishes whenever an `HTMLMediaElement` plays audibly. The card
-/// is registered natively by the web process, so there is no WebKit setting to
-/// disable it; the only lever left is to avoid the media element entirely for
-/// the sounds that trigger it. Short UI sounds — notably the WhatsApp message
-/// chime — are played via `new Audio()`, so route those through Web Audio
-/// (which never creates a media session) and fall back to native playback if
-/// decoding fails. Real `<audio>`/`<video>` elements (voice notes, video,
-/// calls) are left untouched.
 pub(super) const SUPPRESS_MPRIS_JS: &str = r#"
 (function () {
   if (window.__syltrMprisGuard) return;
   window.__syltrMprisGuard = true;
+
+  const nope = function () {};
+
+  try {
+    const ms = navigator.mediaSession;
+    if (ms) {
+      try { ms.setActionHandler = nope; } catch (e) {}
+      try { ms.setPositionState = nope; } catch (e) {}
+    }
+    const proto = window.MediaSession && window.MediaSession.prototype;
+    if (proto) {
+      try { proto.setActionHandler = nope; } catch (e) {}
+      try { proto.setPositionState = nope; } catch (e) {}
+      try {
+        Object.defineProperty(proto, 'metadata', {
+          configurable: true,
+          get: () => null,
+          set: nope,
+        });
+      } catch (e) {}
+      try {
+        Object.defineProperty(proto, 'playbackState', {
+          configurable: true,
+          get: () => 'none',
+          set: nope,
+        });
+      } catch (e) {}
+    }
+  } catch (e) {}
 
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
