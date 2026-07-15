@@ -270,10 +270,6 @@ pub(super) const AUDIO_BOOST_JS: &str = r#"
 })();
 "#;
 
-/// Suppresses the GNOME media-session controls that appear when a page uses
-/// <audio>/<video>. WebKit reports the playback to Mutter/PipeWire; by making
-/// navigator.mediaSession inert we keep the audio boost while avoiding the
-/// player notification shown in the screenshot.
 pub(super) const MEDIA_SESSION_SUPPRESS_JS: &str = r#"
 (function () {
   if (window.__syltrMediaSessionSuppressed) return;

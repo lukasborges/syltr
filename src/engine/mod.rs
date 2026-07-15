@@ -275,8 +275,6 @@ fn build_settings(user_agent: &str) -> webkit6::Settings {
     settings
 }
 
-/// Enables runtime WebKit features that are off by default but that some
-/// services require — notably `requestIdleCallback` (Microsoft Teams).
 fn enable_runtime_features(settings: &webkit6::Settings) {
     let Some(list) = webkit6::Settings::all_features() else {
         return;
@@ -287,8 +285,12 @@ fn enable_runtime_features(settings: &webkit6::Settings) {
             .identifier()
             .map(|s| s.to_string())
             .unwrap_or_default();
-        if id.to_lowercase().contains("idlecallback") {
+        let id = id.to_lowercase();
+        if id.contains("idlecallback") {
             settings.set_feature_enabled(&feature, true);
+        }
+        if id.contains("mediasession") {
+            settings.set_feature_enabled(&feature, false);
         }
     }
 }
