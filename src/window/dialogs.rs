@@ -67,8 +67,8 @@ impl Ui {
     }
 }
 
-/// The "Add service" dialog: a searchable, category-grouped catalog plus a
-/// custom URL.
+/// The "Add service" dialog: a searchable, category-grouped catalog with a
+/// header button for adding a service by custom URL.
 pub(super) fn show_add_dialog(ui: &Ui) {
     let dialog = adw::Dialog::builder()
         .title(gettext("Add service"))
@@ -84,8 +84,6 @@ pub(super) fn show_add_dialog(ui: &Ui) {
         .margin_bottom(6)
         .build();
 
-    let (custom, add_button) = custom_group(ui, &dialog);
-
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(18)
@@ -95,15 +93,27 @@ pub(super) fn show_add_dialog(ui: &Ui) {
         .margin_end(18)
         .build();
     content.append(&catalog_groups(ui, &dialog, &search));
-    content.append(&custom);
-    content.append(&add_button);
 
     // Search stays pinned above the scrolling catalog.
     let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
     outer.append(&search);
     outer.append(&scrollable(&content));
 
-    dialog.set_child(Some(&dialog_toolbar(&outer)));
+    let custom_button = gtk::Button::builder()
+        .icon_name("list-add-symbolic")
+        .tooltip_text(gettext("Add a custom service by URL"))
+        .build();
+    let ui_custom = ui.clone();
+    let dialog_custom = dialog.clone();
+    custom_button.connect_clicked(move |_| show_custom_dialog(&ui_custom, &dialog_custom));
+
+    let toolbar = adw::ToolbarView::new();
+    let header = adw::HeaderBar::new();
+    header.pack_end(&custom_button);
+    toolbar.add_top_bar(&header);
+    toolbar.set_content(Some(&outer));
+
+    dialog.set_child(Some(&toolbar));
     dialog.present(Some(&ui.window));
 }
 
@@ -252,14 +262,17 @@ fn catalog_groups(ui: &Ui, dialog: &adw::Dialog, search: &gtk::SearchEntry) -> g
     container
 }
 
-/// The custom-URL group plus its "Add" button, returned separately so the button
-/// sits below the group in the dialog.
-fn custom_group(ui: &Ui, dialog: &adw::Dialog) -> (adw::PreferencesGroup, gtk::Button) {
-    let group = adw::PreferencesGroup::builder()
-        .title(gettext("Custom"))
-        .description(gettext("Add any web service by URL."))
+/// The "Add custom service" dialog: a name and URL, reached from the header
+/// button of the catalog dialog.
+fn show_custom_dialog(ui: &Ui, parent: &adw::Dialog) {
+    let dialog = adw::Dialog::builder()
+        .title(gettext("Custom service"))
+        .content_width(420)
         .build();
 
+    let group = adw::PreferencesGroup::builder()
+        .description(gettext("Add any web service by URL."))
+        .build();
     let name_row = adw::EntryRow::builder().title(gettext("Name")).build();
     let url_row = adw::EntryRow::builder()
         .title(gettext("URL (https://…)"))
@@ -274,8 +287,20 @@ fn custom_group(ui: &Ui, dialog: &adw::Dialog) -> (adw::PreferencesGroup, gtk::B
         .css_classes(["suggested-action"])
         .build();
 
-    let ui = ui.clone();
-    let dialog = dialog.clone();
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(12)
+        .margin_bottom(18)
+        .margin_start(18)
+        .margin_end(18)
+        .build();
+    content.append(&group);
+    content.append(&add_button);
+
+    let ui_add = ui.clone();
+    let dialog_ref = dialog.clone();
+    let parent = parent.clone();
     add_button.connect_clicked(move |_| {
         let url = url_row.text().to_string();
         if url.trim().is_empty() {
@@ -286,10 +311,13 @@ fn custom_group(ui: &Ui, dialog: &adw::Dialog) -> (adw::PreferencesGroup, gtk::B
         if name.trim().is_empty() {
             name = gettext("Service");
         }
-        ui.begin_add(&name, &url);
-        dialog.close();
+        ui_add.begin_add(&name, &url);
+        dialog_ref.close();
+        parent.close();
     });
-    (group, add_button)
+
+    dialog.set_child(Some(&dialog_toolbar(&content)));
+    dialog.present(Some(&ui.window));
 }
 
 /// Prompts for a distinct name when adding another instance of a service that
