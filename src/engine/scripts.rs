@@ -36,21 +36,62 @@ pub(super) const FAVICON_JS: &str = r#"
 "#;
 
 /// Injected at the start of every page (compatibility):
-/// 1) makes the site see the notification permission as granted (WebKit does
-///    not persist the permission, so WhatsApp kept showing its banner);
+/// 1) replaces the Web Notification API with a shim that forwards notifications
+///    to the native side via the `syltrNotify` handler. WebKitGTK only grants
+///    the real permission from a user gesture and never persists it for the
+///    isolated per-service sessions, so `new Notification()` silently failed;
+///    the shim reports permission as granted and delivers every notification.
 /// 2) polyfills requestIdleCallback/cancelIdleCallback for pages where the
 ///    native feature flag doesn't take (Microsoft Teams breaks without it).
 pub(super) const COMPAT_JS: &str = r#"
 (function () {
   try {
-    Object.defineProperty(Notification, 'permission', {
-      configurable: true,
-      get: () => 'granted',
-    });
-    Notification.requestPermission = function (cb) {
+    let seq = 0;
+    const post = (data) => {
+      try {
+        window.webkit.messageHandlers.syltrNotify.postMessage(JSON.stringify(data));
+        return true;
+      } catch (e) {
+        return false;
+      }
+    };
+    class SyltrNotification extends EventTarget {
+      constructor(title, options) {
+        super();
+        options = options || {};
+        this.title = String(title == null ? '' : title);
+        this.body = options.body || '';
+        this.icon = options.icon || '';
+        this.tag = options.tag || '';
+        this.data = options.data;
+        this.dir = options.dir || 'auto';
+        this.lang = options.lang || '';
+        this.silent = !!options.silent;
+        this.onclick = null;
+        this.onshow = null;
+        this.onclose = null;
+        this.onerror = null;
+        const ok = post({ id: ++seq, title: this.title, body: this.body, tag: this.tag });
+        Promise.resolve().then(() => {
+          const ev = new Event(ok ? 'show' : 'error');
+          this.dispatchEvent(ev);
+          const h = ok ? this.onshow : this.onerror;
+          if (typeof h === 'function') { try { h.call(this, ev); } catch (e) {} }
+        });
+      }
+      close() {
+        const ev = new Event('close');
+        this.dispatchEvent(ev);
+        if (typeof this.onclose === 'function') { try { this.onclose(ev); } catch (e) {} }
+      }
+    }
+    Object.defineProperty(SyltrNotification, 'permission', { get: () => 'granted' });
+    Object.defineProperty(SyltrNotification, 'maxActions', { get: () => 0 });
+    SyltrNotification.requestPermission = function (cb) {
       if (typeof cb === 'function') cb('granted');
       return Promise.resolve('granted');
     };
+    window.Notification = SyltrNotification;
   } catch (e) {}
   try {
     if (typeof window.requestIdleCallback !== 'function') {

@@ -63,6 +63,7 @@ impl ServiceView {
 
         let ucm = webkit6::UserContentManager::new();
         ucm.register_script_message_handler("faviconReady", None);
+        ucm.register_script_message_handler("syltrNotify", None);
         // Compatibility shims injected at page start (see COMPAT_JS).
         ucm.add_script(&webkit6::UserScript::new(
             COMPAT_JS,
@@ -118,7 +119,6 @@ impl ServiceView {
             .hexpand(true)
             .build();
 
-        allow_notifications(&webview, url);
         apply_spell(&webview, spell_langs);
 
         // Grant permissions (notifications, media) automatically — this is a
@@ -130,7 +130,7 @@ impl ServiceView {
         });
 
         let notifications = Rc::new(Cell::new(!muted));
-        wire_notifications(&webview, app, id, name, dnd, notifications.clone());
+        wire_notifications(&ucm, app, id, name, dnd, notifications.clone());
 
         wire_link_clicks(&webview);
 
@@ -295,21 +295,6 @@ fn enable_runtime_features(settings: &webkit6::Settings) {
     }
 }
 
-/// Pre-authorizes desktop notifications for the service's origin so pages
-/// never see a permission request and `new Notification()` succeeds.
-fn allow_notifications(webview: &webkit6::WebView, url: &str) {
-    let Some(context) = webview.context() else {
-        return;
-    };
-    let origin = webkit6::SecurityOrigin::for_uri(url);
-    context.initialize_notification_permissions(&[&origin], &[]);
-    let url = url.to_string();
-    context.connect_initialize_notification_permissions(move |ctx| {
-        let origin = webkit6::SecurityOrigin::for_uri(&url);
-        ctx.initialize_notification_permissions(&[&origin], &[]);
-    });
-}
-
 /// Applies spell checking to the webview's shared context in the given
 /// languages (an empty list turns it off). Backend: enchant/hunspell, so the
 /// system dictionaries are used directly.
@@ -356,10 +341,13 @@ fn open_in_default_browser(uri: &str) {
     }
 }
 
-/// Forwards the site's Web Notifications to the desktop, honoring the
-/// service's mute and the global "do not disturb".
+/// Forwards the site's Web Notifications to the desktop, honoring the service's
+/// mute and the global "do not disturb". Notifications arrive from the page via
+/// the `syltrNotify` handler (see the shim in [`COMPAT_JS`]) rather than the
+/// native Notification API, which WebKit refuses to grant without a user gesture
+/// on the isolated per-service sessions.
 fn wire_notifications(
-    webview: &webkit6::WebView,
+    ucm: &webkit6::UserContentManager,
     app: &adw::Application,
     id: &str,
     name: &str,
@@ -369,20 +357,29 @@ fn wire_notifications(
     let app = app.clone();
     let id = id.to_string();
     let name = name.to_string();
-    webview.connect_show_notification(move |_wv, notification| {
+    ucm.connect_script_message_received(Some("syltrNotify"), move |_, value| {
         if dnd.get() || !enabled.get() {
-            return true; // suppress (we take ownership of the notification)
+            return;
         }
-        let title = notification
-            .title()
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| name.clone());
-        let notif = gtk::gio::Notification::new(&title);
-        if let Some(body) = notification.body() {
-            notif.set_body(Some(&body));
+        let payload: serde_json::Value = serde_json::from_str(&value.to_str()).unwrap_or_default();
+        let title = payload
+            .get("title")
+            .and_then(|t| t.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&name);
+        let notif = gtk::gio::Notification::new(title);
+        if let Some(body) = payload.get("body").and_then(|b| b.as_str()) {
+            if !body.is_empty() {
+                notif.set_body(Some(body));
+            }
         }
-        app.send_notification(Some(&id), &notif);
-        true
+        let tag = payload.get("tag").and_then(|t| t.as_str()).unwrap_or("");
+        let notif_id = if tag.is_empty() {
+            id.clone()
+        } else {
+            format!("{id}:{tag}")
+        };
+        app.send_notification(Some(&notif_id), &notif);
     });
 }
 
