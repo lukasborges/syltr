@@ -170,6 +170,50 @@ pub(super) const CONSOLE_JS: &str = r#"
 })();
 "#;
 
+/// WebKitGTK can emit a paste event without image files even though the GTK
+/// clipboard contains a texture. Ask the native side for that texture only
+/// when WebKit did not provide an image, then redispatch it as a PNG File.
+pub(super) const CLIPBOARD_BRIDGE_JS: &str = r#"
+(function () {
+  if (window.__syltrClipboardBridge) return;
+  window.__syltrClipboardBridge = true;
+
+  window.__syltrPasteImage = function (base64) {
+    try {
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const file = new File([bytes], 'clipboard.png', { type: 'image/png' });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      const event = new ClipboardEvent('paste', {
+        clipboardData: transfer,
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      });
+      // Some WebKit versions ignore clipboardData in the constructor.
+      if (!event.clipboardData || event.clipboardData.files.length === 0) {
+        Object.defineProperty(event, 'clipboardData', { value: transfer });
+      }
+      (document.activeElement || document.body || document).dispatchEvent(event);
+    } catch (e) {
+      console.warn('[syltr] could not inject clipboard image', e);
+    }
+  };
+
+  document.addEventListener('paste', function (event) {
+    const data = event.clipboardData;
+    const items = data ? Array.from(data.items || []) : [];
+    const files = data ? Array.from(data.files || []) : [];
+    const hasImage = items.some((item) => String(item.type).startsWith('image/'))
+      || files.some((file) => String(file.type).startsWith('image/'));
+    if (hasImage) return;
+    try { window.webkit.messageHandlers.syltrPasteImage.postMessage('paste'); } catch (e) {}
+  }, true);
+})();
+"#;
+
 /// Workaround for a WebKitGTK bug (2.52): the media pipeline corrupts `blob:`
 /// sources larger than 2 MB (framing drift under the WebKitWebSrc download
 /// stop/restart cycle), which freezes e.g. WhatsApp videos. Media blobs are

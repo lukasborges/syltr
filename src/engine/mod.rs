@@ -5,6 +5,7 @@
 //! this module's submodules. Each service is a `WebView` with an isolated
 //! network session (own cookies/storage/cache) under its session directory.
 
+mod clipboard;
 mod favicon;
 mod scripts;
 mod session;
@@ -61,6 +62,7 @@ impl ServiceView {
         let ucm = webkit6::UserContentManager::new();
         ucm.register_script_message_handler("faviconReady", None);
         ucm.register_script_message_handler("syltrNotify", None);
+        ucm.register_script_message_handler("syltrPasteImage", None);
         // Compatibility shims injected at page start (see COMPAT_JS).
         ucm.add_script(&webkit6::UserScript::new(
             COMPAT_JS,
@@ -71,6 +73,13 @@ impl ServiceView {
         ));
         ucm.add_script(&webkit6::UserScript::new(
             BLOB_MEDIA_JS,
+            webkit6::UserContentInjectedFrames::AllFrames,
+            webkit6::UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
+        ucm.add_script(&webkit6::UserScript::new(
+            scripts::CLIPBOARD_BRIDGE_JS,
             webkit6::UserContentInjectedFrames::AllFrames,
             webkit6::UserScriptInjectionTime::Start,
             &[],
@@ -110,6 +119,7 @@ impl ServiceView {
             .build();
 
         apply_spell(&webview, spell_langs);
+        clipboard::wire(&webview, &ucm);
 
         // Grant permissions (notifications, media) automatically — this is a
         // dedicated messaging client, so always allowing is the expected
