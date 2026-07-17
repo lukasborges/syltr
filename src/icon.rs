@@ -22,10 +22,16 @@ pub struct ServiceIcon {
     image: gtk::Image,
     label: gtk::Label,
     badge: gtk::Label,
+    fallback_texture: Option<gdk::Texture>,
+    fallback_resource: Option<String>,
 }
 
 impl ServiceIcon {
-    pub fn new(name: &str) -> Self {
+    pub fn new(
+        name: &str,
+        fallback_texture: Option<&gdk::Texture>,
+        fallback_resource: Option<&str>,
+    ) -> Self {
         let background = build_tile_background();
         let label = build_initial_label(name);
         let image = build_favicon_image();
@@ -38,12 +44,16 @@ impl ServiceIcon {
         root.add_overlay(&image);
         root.add_overlay(&badge);
 
-        Self {
+        let icon = Self {
             root,
             image,
             label,
             badge,
-        }
+            fallback_texture: fallback_texture.cloned(),
+            fallback_resource: fallback_resource.map(str::to_string),
+        };
+        icon.show_fallback();
+        icon
     }
 
     /// Shows the "stacked cards" affordance behind the tile, marking a service
@@ -84,7 +94,8 @@ impl ServiceIcon {
         self.root.upcast_ref()
     }
 
-    /// Updates the icon with the favicon (or falls back to the initial if `None`).
+    /// Updates the icon with the live favicon. If it is unavailable, a bundled
+    /// service logo is used before falling back to the name's initial.
     pub fn set_favicon(&self, texture: Option<&gdk::Texture>) {
         match texture {
             Some(tex) => {
@@ -96,11 +107,26 @@ impl ServiceIcon {
                 self.image.set_visible(true);
                 self.label.set_visible(false);
             }
-            None => {
-                self.image.set_paintable(None::<&gdk::Texture>);
-                self.image.set_visible(false);
-                self.label.set_visible(true);
-            }
+            None => self.show_fallback(),
+        }
+    }
+
+    fn show_fallback(&self) {
+        if let Some(texture) = self.fallback_texture.as_ref() {
+            self.image.set_paintable(Some(texture));
+            let native = texture.width().max(texture.height());
+            self.image.set_pixel_size(native.clamp(16, 24));
+            self.image.set_visible(true);
+            self.label.set_visible(false);
+        } else if let Some(resource) = self.fallback_resource.as_deref() {
+            self.image.set_resource(Some(resource));
+            self.image.set_pixel_size(24);
+            self.image.set_visible(true);
+            self.label.set_visible(false);
+        } else {
+            self.image.set_paintable(None::<&gdk::Texture>);
+            self.image.set_visible(false);
+            self.label.set_visible(true);
         }
     }
 }

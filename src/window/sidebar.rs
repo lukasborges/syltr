@@ -9,7 +9,7 @@ use gtk::{gdk, glib};
 
 use super::dialogs::show_name_instance_dialog;
 use super::widgets::{menu_item, service_row};
-use super::{Ui, DISABLED_PAGE, EMPTY_PAGE};
+use super::{Ui, DISABLED_PAGE, EMPTY_PAGE, WELCOME_PAGE};
 use crate::config::{self, Service};
 use crate::icon::ServiceIcon;
 use crate::{catalog, engine};
@@ -31,6 +31,14 @@ fn group_services(services: &[Service]) -> Vec<Vec<Service>> {
 
 fn should_keep_view(service: &Service, current: Option<&str>) -> bool {
     !service.disabled && (service.background || current.is_some_and(|id| id == service.id.as_str()))
+}
+
+fn current_group_index(groups: &[Vec<Service>], current: Option<&str>) -> Option<usize> {
+    current.and_then(|id| {
+        groups
+            .iter()
+            .position(|group| group.iter().any(|service| service.id == id))
+    })
 }
 
 impl Ui {
@@ -122,7 +130,15 @@ impl Ui {
                 .collect();
             let rep = &group[0];
 
-            let icon = ServiceIcon::new(&rep.name);
+            let bundled_icon = catalog::CATALOG
+                .iter()
+                .find(|entry| entry.url == rep.url)
+                .map(|entry| format!("/dev/syltr/Syltr/icons/{}.svg", entry.key));
+            let cached_favicon = group
+                .iter()
+                .find_map(|service| engine::cached_favicon(&config::session_dir(&service.id)));
+            let icon =
+                ServiceIcon::new(&rep.name, cached_favicon.as_ref(), bundled_icon.as_deref());
             icon.set_stacked(group.len() > 1);
             icon.set_dimmed(group.iter().all(|service| service.disabled));
 
@@ -166,12 +182,13 @@ impl Ui {
             self.stack.set_visible_child_name(EMPTY_PAGE);
             self.title.set_title("Syltr");
             self.state.borrow_mut().current = None;
-        } else {
-            let idx = current
-                .as_deref()
-                .and_then(|cur| groups.iter().position(|g| g.iter().any(|s| s.id == cur)))
-                .unwrap_or(0);
+        } else if let Some(idx) = current_group_index(&groups, current.as_deref()) {
             self.select_index(idx);
+        } else {
+            self.list.unselect_all();
+            self.stack.set_visible_child_name(WELCOME_PAGE);
+            self.title.set_title("Syltr");
+            self.split.set_show_content(true);
         }
     }
 

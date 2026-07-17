@@ -43,6 +43,25 @@ const STYLE: &str = "
     font-weight: bold;
 }
 
+/* Startup landing page: entirely theme-aware, including the illustration. */
+.welcome-page {
+    background-color: @window_bg_color;
+}
+.welcome-illustration {
+    color: @accent_fg_color;
+    background-color: @accent_bg_color;
+    border-radius: 999px;
+    box-shadow: 0 10px 32px alpha(@window_fg_color, 0.16);
+}
+.welcome-title {
+    font-size: 28px;
+    font-weight: 700;
+}
+.welcome-description {
+    color: alpha(@window_fg_color, 0.72);
+    font-size: 16px;
+}
+
 /* Unread badge (top-right corner of the icon). */
 .unread-badge {
     background-color: #e01b24;

@@ -6,21 +6,36 @@
 //! rail's grouped icon can pick it up (several instances share one icon).
 
 use std::cell::RefCell;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use base64::Engine;
 use gtk::gdk;
+use gtk::prelude::*;
 use webkit6::prelude::*;
+
+const CACHE_FILE: &str = "favicon.png";
+
+pub(super) fn load_cached(session_dir: &Path) -> Option<gdk::Texture> {
+    gdk::Texture::from_filename(session_dir.join(CACHE_FILE)).ok()
+}
 
 pub(super) fn wire(
     webview: &webkit6::WebView,
     ucm: &webkit6::UserContentManager,
     store: Rc<RefCell<Option<gdk::Texture>>>,
     notify: Rc<dyn Fn()>,
+    session_dir: &Path,
 ) {
+    let cache_file = session_dir.join(CACHE_FILE);
     let set: Rc<dyn Fn(Option<gdk::Texture>)> = Rc::new(move |texture| {
-        *store.borrow_mut() = texture;
-        notify();
+        // A transient `None` during navigation must not erase the last real
+        // favicon; that cached icon is what suspended/disabled services show.
+        if let Some(texture) = texture {
+            save_cached(&texture, &cache_file);
+            *store.borrow_mut() = Some(texture);
+            notify();
+        }
     });
 
     // Fast path: the raster favicon WebKit already tracks.
@@ -37,6 +52,18 @@ pub(super) fn wire(
                 set(Some(texture));
             }
         });
+    }
+}
+
+fn save_cached(texture: &gdk::Texture, path: &PathBuf) {
+    if let Some(parent) = path.parent() {
+        if let Err(error) = std::fs::create_dir_all(parent) {
+            eprintln!("syltr: could not create favicon cache directory: {error}");
+            return;
+        }
+    }
+    if let Err(error) = texture.save_to_png(path) {
+        eprintln!("syltr: could not cache favicon: {error}");
     }
 }
 

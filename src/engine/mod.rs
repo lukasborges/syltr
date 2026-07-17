@@ -146,7 +146,7 @@ impl ServiceView {
         });
 
         let unread = Rc::new(Cell::new(0u32));
-        let favicon = Rc::new(RefCell::new(None::<gdk::Texture>));
+        let favicon = Rc::new(RefCell::new(favicon::load_cached(session_dir)));
         let on_change: ChangeCallback = Rc::new(RefCell::new(None));
         let notify: Rc<dyn Fn()> = {
             let on_change = on_change.clone();
@@ -157,7 +157,7 @@ impl ServiceView {
             })
         };
 
-        favicon::wire(&webview, &ucm, favicon.clone(), notify.clone());
+        favicon::wire(&webview, &ucm, favicon.clone(), notify.clone(), session_dir);
 
         // Unread count parsed from the page title; observers (the rail's grouped
         // icon) are notified so they can re-aggregate.
@@ -266,6 +266,11 @@ impl ServiceView {
         }
         self.webview.reload();
     }
+}
+
+/// Returns the last favicon cached for a service, without creating its WebView.
+pub fn cached_favicon(session_dir: &Path) -> Option<gdk::Texture> {
+    favicon::load_cached(session_dir)
 }
 
 /// The user-agent a service resolves to for the given custom value (`None` =

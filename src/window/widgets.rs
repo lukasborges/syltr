@@ -5,7 +5,7 @@ use adw::prelude::*;
 use gettextrs::gettext;
 use gtk::gio;
 
-use super::{DISABLED_PAGE, EMPTY_PAGE};
+use super::{DISABLED_PAGE, EMPTY_PAGE, WELCOME_PAGE};
 use crate::catalog;
 use crate::config::Service;
 
@@ -20,16 +20,67 @@ pub(super) fn build_service_list() -> gtk::ListBox {
         .build()
 }
 
-/// A stack of web views, starting on the empty state.
+/// A stack of web views, starting on the welcome state.
 pub(super) fn build_content_stack() -> gtk::Stack {
     let stack = gtk::Stack::builder()
         .transition_type(gtk::StackTransitionType::Crossfade)
         .vexpand(true)
         .hexpand(true)
         .build();
+    stack.add_named(&welcome_state(), Some(WELCOME_PAGE));
     stack.add_named(&empty_state(), Some(EMPTY_PAGE));
     stack.add_named(&disabled_state(), Some(DISABLED_PAGE));
     stack
+}
+
+/// The quiet landing page shown at startup until the user chooses a service.
+pub(super) fn welcome_state() -> gtk::CenterBox {
+    let illustration = gtk::Box::builder()
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .width_request(144)
+        .height_request(144)
+        .css_classes(["welcome-illustration"])
+        .build();
+    let icon = gtk::Image::from_icon_name("chat-symbolic");
+    icon.set_pixel_size(76);
+    illustration.append(&icon);
+
+    let title = gtk::Label::builder()
+        .label(gettext("It's suspiciously quiet in here…"))
+        .justify(gtk::Justification::Center)
+        .wrap(true)
+        .css_classes(["welcome-title"])
+        .build();
+    let description = gtk::Label::builder()
+        .label(gettext(
+            "Pick a service from the sidebar and let the conversations begin.",
+        ))
+        .justify(gtk::Justification::Center)
+        .wrap(true)
+        .max_width_chars(44)
+        .css_classes(["welcome-description"])
+        .build();
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(18)
+        .margin_top(36)
+        .margin_bottom(36)
+        .margin_start(36)
+        .margin_end(36)
+        .build();
+    content.append(&illustration);
+    content.append(&title);
+    content.append(&description);
+
+    gtk::CenterBox::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .center_widget(&content)
+        .vexpand(true)
+        .hexpand(true)
+        .css_classes(["welcome-page"])
+        .build()
 }
 
 /// The single header bar spanning the whole window width.

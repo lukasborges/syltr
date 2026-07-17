@@ -107,5 +107,11 @@ msgstr "Executar em segundo plano"
 msgid "Keep notifications and unread badges updated when this service is not selected."
 msgstr "Mantenha notificações e indicadores de não lidas atualizados quando este serviço não estiver selecionado."
 
+msgid "It's suspiciously quiet in here…"
+msgstr "Está suspeitamente quieto por aqui…"
+
+msgid "Pick a service from the sidebar and let the conversations begin."
+msgstr "Escolha um serviço ao lado e deixe a conversa começar."
+
 msgid "All-in-one messaging aggregator for GNOME."
 msgstr "Agregador de serviços de mensagens para o GNOME."

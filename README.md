@@ -9,7 +9,8 @@ storage).
 
 ## Features
 
-- Icon rail with real favicons (SVG included) and an active-item highlight
+- Theme-aware welcome screen until a service is selected
+- Icon rail with real, persistent favicons (SVG fallback included) and an active-item highlight
 - Add services from a catalog or by custom URL
 - **Reorder** services by dragging · **context menu** (right click)
 - **Unread badges** on the icon (detected from the page title)
@@ -101,6 +102,8 @@ responsibility:
 
 Each service is a `webkit6::WebView` with its own **`NetworkSession`**
 (cookies, storage and cache isolated under the service's session directory).
+The latest real favicon is cached alongside that session and remains available
+while the service is suspended or disabled.
 Only the selected service stays loaded by default. Background activity can be
 enabled per service from **Edit service** to keep notifications and unread
 badges updating; focused direct messengers use this mode by default, while
