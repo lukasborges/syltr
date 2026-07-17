@@ -51,6 +51,8 @@ Useful environment variables:
 
 - `SYLTR_DEBUG=1` — forward the pages' JS errors/warnings to stderr
 - `SYLTR_LOCALE_DIR` — override the translations directory
+- `SYLTR_HW_RENDER=1` — opt into hardware acceleration (disabled by default
+  because WebKitGTK 2.52 can show black surfaces on some GPUs)
 
 ### Media codecs (WhatsApp video)
 
