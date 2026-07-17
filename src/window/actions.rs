@@ -37,7 +37,7 @@ pub(super) fn wire_actions(app: &adw::Application, ui: &Ui) {
     });
 
     for i in 1usize..=9 {
-        add_action(ui, &format!("goto{i}"), move |ui| ui.select_index(i - 1));
+        add_action(ui, &format!("goto{i}"), move |ui| ui.activate_index(i - 1));
         app.set_accels_for_action(&format!("win.goto{i}"), &[&format!("<Primary>{i}")]);
     }
     add_action(ui, "next-service", |ui| ui.step(1));

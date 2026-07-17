@@ -116,7 +116,6 @@ impl Ui {
     }
 
     pub(super) fn refresh_sidebar(&self) {
-        self.rebuilding_sidebar.set(true);
         self.reconcile_views();
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
@@ -186,17 +185,24 @@ impl Ui {
         } else if let Some(idx) = current_group_index(&groups, current.as_deref()) {
             self.select_index(idx);
         } else {
-            self.list.unselect_all();
+            self.list.set_selection_mode(gtk::SelectionMode::None);
             self.stack.set_visible_child_name(WELCOME_PAGE);
             self.title.set_title("Syltr");
             self.split.set_show_content(true);
         }
-        self.rebuilding_sidebar.set(false);
     }
 
     pub(super) fn select_index(&self, idx: usize) {
+        self.list.set_selection_mode(gtk::SelectionMode::Single);
         if let Some(row) = self.list.row_at_index(idx as i32) {
             self.list.select_row(Some(&row));
+        }
+    }
+
+    /// Activates a rail group from a keyboard shortcut.
+    pub(super) fn activate_index(&self, idx: usize) {
+        if let Some(row) = self.list.row_at_index(idx as i32) {
+            self.on_row_activated(idx, &row);
         }
     }
 
@@ -278,24 +284,22 @@ impl Ui {
         let cur = current
             .as_deref()
             .and_then(|id| groups.iter().position(|g| g.iter().any(|s| s.id == id)))
-            .map(|p| p as i32)
-            .unwrap_or(0);
-        let next = (((cur + delta) % len) + len) % len;
-        self.select_index(next as usize);
+            .map(|position| position as i32);
+        let next = match cur {
+            Some(cur) => (((cur + delta) % len) + len) % len,
+            None if delta < 0 => len - 1,
+            None => 0,
+        };
+        self.activate_index(next as usize);
     }
 
-    /// Shows the given group's active instance — the current one if it belongs
-    /// to the group, otherwise the first. Wired to row selection.
-    /// For groups with multiple instances the row click only opens the chooser
-    /// popover, so selection here does nothing.
-    pub(super) fn show_service_at(&self, group_idx: usize) {
+    /// Makes the given group's active instance current — the current one if it
+    /// belongs to the group, otherwise the first.
+    pub(super) fn show_group_instance_at(&self, group_idx: usize) {
         let groups = self.groups();
         let Some(group) = groups.get(group_idx) else {
             return;
         };
-        if group.len() > 1 {
-            return;
-        }
         let current = self.state.borrow().current.clone();
         let active = group
             .iter()
@@ -339,12 +343,15 @@ impl Ui {
 
     /// A click on a group with several instances opens the instance chooser.
     pub(super) fn on_row_activated(&self, group_idx: usize, row: &gtk::ListBoxRow) {
+        self.select_index(group_idx);
         let groups = self.groups();
         let Some(group) = groups.get(group_idx) else {
             return;
         };
         if group.len() > 1 {
             self.show_instance_popover(group, row);
+        } else {
+            self.show_group_instance_at(group_idx);
         }
     }
 

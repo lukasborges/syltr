@@ -16,6 +16,7 @@ impl Ui {
         // Selecting the group makes its active instance current; the actions
         // then operate on that instance.
         self.select_index(index);
+        self.show_group_instance_at(index);
 
         let current = self.state.borrow().current.clone();
         let (svc_index, muted, disabled) = {

@@ -15,7 +15,9 @@ const SERVICE_ICON_SIZE: i32 = 28;
 /// The icon-only side rail (no header of its own).
 pub(super) fn build_service_list() -> gtk::ListBox {
     gtk::ListBox::builder()
-        .selection_mode(gtk::SelectionMode::Single)
+        // Startup deliberately has no selected row. The first explicit
+        // activation switches this to Single and selects the chosen service.
+        .selection_mode(gtk::SelectionMode::None)
         .css_classes(["navigation-sidebar", "rail"])
         .build()
 }
@@ -35,16 +37,7 @@ pub(super) fn build_content_stack() -> gtk::Stack {
 
 /// The quiet landing page shown at startup until the user chooses a service.
 pub(super) fn welcome_state() -> gtk::CenterBox {
-    let illustration = gtk::Box::builder()
-        .halign(gtk::Align::Center)
-        .valign(gtk::Align::Center)
-        .width_request(144)
-        .height_request(144)
-        .css_classes(["welcome-illustration"])
-        .build();
-    let icon = gtk::Image::from_icon_name("chat-symbolic");
-    icon.set_pixel_size(76);
-    illustration.append(&icon);
+    let illustration = welcome_illustration();
 
     let title = gtk::Label::builder()
         .label(gettext("It's suspiciously quiet in here…"))
@@ -81,6 +74,100 @@ pub(super) fn welcome_state() -> gtk::CenterBox {
         .hexpand(true)
         .css_classes(["welcome-page"])
         .build()
+}
+
+/// Theme-colored conversation bubbles drawn locally, avoiding icon-theme
+/// differences that can turn a missing symbolic icon into an error glyph.
+fn welcome_illustration() -> gtk::DrawingArea {
+    let drawing = gtk::DrawingArea::builder()
+        .content_width(144)
+        .content_height(144)
+        .halign(gtk::Align::Center)
+        .valign(gtk::Align::Center)
+        .css_classes(["welcome-illustration"])
+        .build();
+
+    drawing.set_draw_func(|area, cr, width, height| {
+        let scale_x = width as f64 / 144.0;
+        let scale_y = height as f64 / 144.0;
+        cr.scale(scale_x, scale_y);
+
+        let foreground = area.color();
+
+        // Rear bubble: deliberately translucent to suggest several services.
+        rounded_path(cr, 55.0, 67.0, 62.0, 43.0, 12.0);
+        cr.set_source_rgba(
+            foreground.red() as f64,
+            foreground.green() as f64,
+            foreground.blue() as f64,
+            0.46,
+        );
+        let _ = cr.fill();
+        cr.move_to(93.0, 107.0);
+        cr.line_to(105.0, 119.0);
+        cr.line_to(105.0, 105.0);
+        cr.close_path();
+        let _ = cr.fill();
+
+        // Main bubble and its tail.
+        rounded_path(cr, 27.0, 34.0, 82.0, 55.0, 15.0);
+        cr.set_source_rgba(
+            foreground.red() as f64,
+            foreground.green() as f64,
+            foreground.blue() as f64,
+            1.0,
+        );
+        let _ = cr.fill();
+        cr.move_to(43.0, 84.0);
+        cr.line_to(39.0, 101.0);
+        cr.line_to(58.0, 87.0);
+        cr.close_path();
+        let _ = cr.fill();
+
+        // Three accent-colored conversation dots.
+        cr.set_source_rgba(0.16, 0.18, 0.22, 0.72);
+        for x in [48.0, 68.0, 88.0] {
+            cr.arc(x, 61.0, 4.5, 0.0, std::f64::consts::TAU);
+            let _ = cr.fill();
+        }
+    });
+
+    drawing
+}
+
+fn rounded_path(cr: &gtk::cairo::Context, x: f64, y: f64, w: f64, h: f64, radius: f64) {
+    let right = x + w;
+    let bottom = y + h;
+    cr.new_sub_path();
+    cr.arc(
+        right - radius,
+        y + radius,
+        radius,
+        -std::f64::consts::FRAC_PI_2,
+        0.0,
+    );
+    cr.arc(
+        right - radius,
+        bottom - radius,
+        radius,
+        0.0,
+        std::f64::consts::FRAC_PI_2,
+    );
+    cr.arc(
+        x + radius,
+        bottom - radius,
+        radius,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
+    );
+    cr.arc(
+        x + radius,
+        y + radius,
+        radius,
+        std::f64::consts::PI,
+        std::f64::consts::PI * 1.5,
+    );
+    cr.close_path();
 }
 
 /// The single header bar spanning the whole window width.
