@@ -107,11 +107,11 @@ msgstr "Executar em segundo plano"
 msgid "Keep notifications and unread badges updated when this service is not selected."
 msgstr "Mantenha notificações e indicadores de não lidas atualizados quando este serviço não estiver selecionado."
 
-msgid "It's suspiciously quiet in here…"
-msgstr "Está suspeitamente quieto por aqui…"
+msgid "Welcome to Syltr"
+msgstr "Boas-vindas ao Syltr"
 
-msgid "Pick a service from the sidebar and let the conversations begin."
-msgstr "Escolha um serviço ao lado e deixe a conversa começar."
+msgid "Choose a service from the sidebar to get started."
+msgstr "Escolha um serviço ao lado para começar."
 
 msgid "All-in-one messaging aggregator for GNOME."
 msgstr "Agregador de serviços de mensagens para o GNOME."

@@ -40,15 +40,13 @@ pub(super) fn welcome_state() -> gtk::CenterBox {
     let illustration = welcome_illustration();
 
     let title = gtk::Label::builder()
-        .label(gettext("It's suspiciously quiet in here…"))
+        .label(gettext("Welcome to Syltr"))
         .justify(gtk::Justification::Center)
         .wrap(true)
         .css_classes(["welcome-title"])
         .build();
     let description = gtk::Label::builder()
-        .label(gettext(
-            "Pick a service from the sidebar and let the conversations begin.",
-        ))
+        .label(gettext("Choose a service from the sidebar to get started."))
         .justify(gtk::Justification::Center)
         .wrap(true)
         .max_width_chars(44)
