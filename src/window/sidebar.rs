@@ -29,10 +29,14 @@ fn group_services(services: &[Service]) -> Vec<Vec<Service>> {
     groups
 }
 
+fn should_keep_view(service: &Service, current: Option<&str>) -> bool {
+    !service.disabled && (service.background || current.is_some_and(|id| id == service.id.as_str()))
+}
+
 impl Ui {
-    /// Ensures a service's web view exists (loading in the background) and
-    /// returns a clone. Called upfront for every service so favicons load and
-    /// notifications arrive from the start.
+    /// Ensures a service's web view exists and returns a clone. Views are made
+    /// on demand for the selected service and eagerly only for services whose
+    /// background activity is enabled.
     pub(super) fn ensure_view(&self, svc: &Service) -> engine::ServiceView {
         if let Some(view) = self.state.borrow().views.get(&svc.id) {
             return view.clone();
@@ -56,36 +60,93 @@ impl Ui {
         view
     }
 
+    /// Removes a web view and its rail callback so WebKit can release all of
+    /// the service's page resources.
+    fn unload_view(&self, id: &str) -> bool {
+        let view = self.state.borrow_mut().views.remove(id);
+        if let Some(view) = view {
+            view.clear_on_change();
+            self.stack.remove(view.widget());
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Drops views that are disabled or neither selected nor allowed to run in
+    /// the background. Returns whether any view was removed.
+    fn reconcile_views(&self) -> bool {
+        let unload = {
+            let st = self.state.borrow();
+            let current = st.current.as_deref();
+            st.views
+                .keys()
+                .filter(|id| {
+                    st.services
+                        .iter()
+                        .find(|service| service.id.as_str() == id.as_str())
+                        .is_none_or(|service| !should_keep_view(service, current))
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        let mut removed = false;
+        for id in unload {
+            removed |= self.unload_view(&id);
+        }
+        removed
+    }
+
+    fn schedule_sidebar_refresh(&self) {
+        let ui = self.clone();
+        glib::idle_add_local_once(move || ui.refresh_sidebar());
+    }
+
     fn groups(&self) -> Vec<Vec<Service>> {
         group_services(&self.state.borrow().services)
     }
 
     pub(super) fn refresh_sidebar(&self) {
+        self.reconcile_views();
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
         }
         let groups = self.groups();
+        let current = self.state.borrow().current.clone();
         for (i, group) in groups.iter().enumerate() {
             let views: Vec<engine::ServiceView> = group
                 .iter()
-                .filter(|svc| !svc.disabled)
+                .filter(|svc| should_keep_view(svc, current.as_deref()))
                 .map(|svc| self.ensure_view(svc))
                 .collect();
             let rep = &group[0];
 
             let icon = ServiceIcon::new(&rep.name);
             icon.set_stacked(group.len() > 1);
-            icon.set_dimmed(views.is_empty());
+            icon.set_dimmed(group.iter().all(|service| service.disabled));
 
             // The grouped icon aggregates the unread of every instance and shows
             // the shared favicon; any instance's change re-runs this.
             let update: Rc<dyn Fn()> = {
                 let icon = icon.clone();
-                let views = views.clone();
+                let state = Rc::downgrade(&self.state);
+                let ids = group
+                    .iter()
+                    .map(|service| service.id.clone())
+                    .collect::<Vec<_>>();
                 Rc::new(move || {
-                    let total: u32 = views.iter().map(|v| v.unread()).sum();
+                    let Some(state) = state.upgrade() else {
+                        return;
+                    };
+                    let state = state.borrow();
+                    let active = ids
+                        .iter()
+                        .filter_map(|id| state.views.get(id))
+                        .collect::<Vec<_>>();
+                    let total: u32 = active.iter().map(|view| view.unread()).sum();
                     icon.set_badge(total);
-                    if let Some(rep) = views.first() {
+                    if let Some(rep) = active.first() {
                         icon.set_favicon(rep.favicon().as_ref());
                     }
                 })
@@ -106,7 +167,6 @@ impl Ui {
             self.title.set_title("Syltr");
             self.state.borrow_mut().current = None;
         } else {
-            let current = self.state.borrow().current.clone();
             let idx = current
                 .as_deref()
                 .and_then(|cur| groups.iter().position(|g| g.iter().any(|s| s.id == cur)))
@@ -222,18 +282,40 @@ impl Ui {
             .iter()
             .find(|s| current.as_deref() == Some(s.id.as_str()))
             .unwrap_or(&group[0]);
-        self.show_instance(&active.id, &active.name, active.disabled);
+        self.show_instance(&active.id);
     }
 
-    fn show_instance(&self, id: &str, name: &str, disabled: bool) {
-        if disabled {
+    fn show_instance(&self, id: &str) {
+        let service = {
+            let state = self.state.borrow();
+            state
+                .services
+                .iter()
+                .find(|service| service.id == id)
+                .cloned()
+        };
+        let Some(service) = service else {
+            return;
+        };
+
+        let created = !service.disabled && !self.state.borrow().views.contains_key(id);
+        if !service.disabled {
+            self.ensure_view(&service);
+        }
+
+        if service.disabled {
             self.stack.set_visible_child_name(DISABLED_PAGE);
         } else {
             self.stack.set_visible_child_name(id);
         }
-        self.title.set_title(name);
+        self.title.set_title(&service.name);
         self.state.borrow_mut().current = Some(id.to_string());
         self.split.set_show_content(true);
+
+        let unloaded = self.reconcile_views();
+        if created || unloaded {
+            self.schedule_sidebar_refresh();
+        }
     }
 
     /// A click on a group with several instances opens the instance chooser.
@@ -288,11 +370,9 @@ impl Ui {
             let ui = self.clone();
             let pop = popover.clone();
             let id = svc.id.clone();
-            let name = svc.name.clone();
-            let disabled = svc.disabled;
             item.connect_clicked(move |_| {
                 pop.popdown();
-                ui.show_instance(&id, &name, disabled);
+                ui.show_instance(&id);
             });
             menu.append(&item);
         }
@@ -339,6 +419,7 @@ impl Ui {
     }
 
     pub(super) fn add_service(&self, name: &str, url: &str) {
+        let url = config::normalize_url(url);
         let id = {
             let st = self.state.borrow();
             config::make_id(&st.services, name)
@@ -346,7 +427,8 @@ impl Ui {
         self.state.borrow_mut().services.push(Service {
             id: id.clone(),
             name: name.to_string(),
-            url: config::normalize_url(url),
+            background: catalog::background_by_default(&url),
+            url,
             muted: false,
             disabled: false,
             user_agent: None,
@@ -358,13 +440,14 @@ impl Ui {
 
     /// Applies edits from the "Edit service" dialog. A changed URL rebuilds the
     /// view (so it loads the new home and UA); a changed UA alone just reloads
-    /// the live view; a name-only change just refreshes the rail.
+    /// the live view. Background changes are reconciled during the rail refresh.
     pub(super) fn update_service(
         &self,
         index: usize,
         name: &str,
         url: &str,
         user_agent: Option<String>,
+        background: bool,
     ) {
         let new_url = config::normalize_url(url);
         let (id, url_changed, ua_changed) = {
@@ -377,12 +460,11 @@ impl Ui {
             svc.name = name.to_string();
             svc.url = new_url;
             svc.user_agent = user_agent.clone();
+            svc.background = background;
             (svc.id.clone(), url_changed, ua_changed)
         };
         if url_changed {
-            if let Some(view) = self.state.borrow_mut().views.remove(&id) {
-                self.stack.remove(view.widget());
-            }
+            self.unload_view(&id);
         } else if ua_changed {
             if let Some(view) = self.state.borrow().views.get(&id) {
                 view.set_user_agent(user_agent.as_deref());
@@ -399,16 +481,17 @@ impl Ui {
         let Some(id) = self.state.borrow().current.clone() else {
             return;
         };
+        if let Some(svc) = self
+            .state
+            .borrow_mut()
+            .services
+            .iter_mut()
+            .find(|s| s.id == id)
         {
-            let mut st = self.state.borrow_mut();
-            if let Some(svc) = st.services.iter_mut().find(|s| s.id == id) {
-                svc.disabled = disabled;
-            }
-            if disabled {
-                if let Some(view) = st.views.remove(&id) {
-                    self.stack.remove(view.widget());
-                }
-            }
+            svc.disabled = disabled;
+        }
+        if disabled {
+            self.unload_view(&id);
         }
         self.save();
         self.refresh_sidebar();
@@ -418,14 +501,9 @@ impl Ui {
         let Some(id) = self.state.borrow().current.clone() else {
             return;
         };
-        {
-            let mut st = self.state.borrow_mut();
-            st.services.retain(|s| s.id != id);
-            if let Some(view) = st.views.remove(&id) {
-                self.stack.remove(view.widget());
-            }
-            st.current = None;
-        }
+        self.state.borrow_mut().services.retain(|s| s.id != id);
+        self.unload_view(&id);
+        self.state.borrow_mut().current = None;
         self.save();
         self.refresh_sidebar();
     }
@@ -439,3 +517,6 @@ impl Ui {
         config::save(&self.state.borrow().services);
     }
 }
+
+#[cfg(test)]
+mod tests;

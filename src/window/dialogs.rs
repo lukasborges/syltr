@@ -117,15 +117,20 @@ pub(super) fn show_add_dialog(ui: &Ui) {
     dialog.present(Some(&ui.window));
 }
 
-/// The "Edit service" dialog: name, URL and an optional custom user-agent.
+/// The "Edit service" dialog: identity, background behavior and user-agent.
 /// Extensible — further per-service settings can be added as rows here.
 pub(super) fn show_edit_dialog(ui: &Ui, index: usize) {
-    let (name, url, custom_ua) = {
+    let (name, url, background, custom_ua) = {
         let st = ui.state.borrow();
         let Some(svc) = st.services.get(index) else {
             return;
         };
-        (svc.name.clone(), svc.url.clone(), svc.user_agent.clone())
+        (
+            svc.name.clone(),
+            svc.url.clone(),
+            svc.background,
+            svc.user_agent.clone(),
+        )
     };
 
     let dialog = adw::Dialog::builder()
@@ -144,6 +149,18 @@ pub(super) fn show_edit_dialog(ui: &Ui, index: usize) {
     url_row.set_text(&url);
     group.add(&name_row);
     group.add(&url_row);
+
+    let behavior_group = adw::PreferencesGroup::builder()
+        .title(gettext("Activity"))
+        .build();
+    let background_row = adw::SwitchRow::builder()
+        .title(gettext("Run in background"))
+        .subtitle(gettext(
+            "Keep notifications and unread badges updated when this service is not selected.",
+        ))
+        .active(background)
+        .build();
+    behavior_group.add(&background_row);
 
     let ua_group = adw::PreferencesGroup::builder()
         .title(gettext("User agent"))
@@ -179,6 +196,7 @@ pub(super) fn show_edit_dialog(ui: &Ui, index: usize) {
         .margin_end(18)
         .build();
     content.append(&group);
+    content.append(&behavior_group);
     content.append(&ua_group);
     content.append(&save_button);
 
@@ -196,7 +214,7 @@ pub(super) fn show_edit_dialog(ui: &Ui, index: usize) {
         }
         let ua = ua_row.text().to_string();
         let ua = (!ua.trim().is_empty()).then_some(ua);
-        ui_save.update_service(index, &name, &url, ua);
+        ui_save.update_service(index, &name, &url, ua, background_row.is_active());
         dialog_ref.close();
     });
 

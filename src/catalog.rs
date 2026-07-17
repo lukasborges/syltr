@@ -11,22 +11,24 @@ pub struct Entry {
     pub url: &'static str,
     /// Group shown in the "Add service" dialog.
     pub category: &'static str,
+    /// Whether new instances should keep running when they are not selected.
+    pub background_by_default: bool,
 }
 
 pub const CATALOG: &[Entry] = &[
-    entry(
+    background_entry(
         "whatsapp",
         "WhatsApp Web",
         "https://web.whatsapp.com/",
         "Messaging",
     ),
-    entry(
+    background_entry(
         "telegram",
         "Telegram Web",
         "https://web.telegram.org/",
         "Messaging",
     ),
-    entry(
+    background_entry(
         "messenger",
         "Messenger",
         "https://www.messenger.com/",
@@ -39,26 +41,26 @@ pub const CATALOG: &[Entry] = &[
         "Messaging",
     ),
     entry("discord", "Discord", "https://discord.com/app", "Messaging"),
-    entry(
+    background_entry(
         "element",
         "Element (Matrix)",
         "https://app.element.io/",
         "Messaging",
     ),
     entry("skype", "Skype", "https://web.skype.com/", "Messaging"),
-    entry(
+    background_entry(
         "gmessages",
         "Google Messages",
         "https://messages.google.com/web/",
         "Messaging",
     ),
-    entry(
+    background_entry(
         "threema",
         "Threema Web",
         "https://web.threema.ch/",
         "Messaging",
     ),
-    entry(
+    background_entry(
         "groupme",
         "GroupMe",
         "https://web.groupme.com/",
@@ -164,6 +166,15 @@ pub fn categories() -> Vec<&'static str> {
     ordered
 }
 
+/// Recommended background behavior for a newly-added catalog service.
+/// Custom URLs intentionally default to off.
+pub fn background_by_default(url: &str) -> bool {
+    CATALOG
+        .iter()
+        .find(|entry| entry.url == url)
+        .is_some_and(|entry| entry.background_by_default)
+}
+
 const fn entry(
     key: &'static str,
     name: &'static str,
@@ -175,12 +186,28 @@ const fn entry(
         name,
         url,
         category,
+        background_by_default: false,
+    }
+}
+
+const fn background_entry(
+    key: &'static str,
+    name: &'static str,
+    url: &'static str,
+    category: &'static str,
+) -> Entry {
+    Entry {
+        key,
+        name,
+        url,
+        category,
+        background_by_default: true,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{categories, CATALOG};
+    use super::{background_by_default, categories, CATALOG};
 
     #[test]
     fn catalog_only_contains_supported_service_categories() {
@@ -201,5 +228,25 @@ mod tests {
         assert!(excluded
             .iter()
             .all(|key| CATALOG.iter().all(|entry| entry.key != *key)));
+    }
+
+    #[test]
+    fn only_focused_messengers_run_in_background_by_default() {
+        let enabled = [
+            "whatsapp",
+            "telegram",
+            "messenger",
+            "element",
+            "gmessages",
+            "threema",
+            "groupme",
+        ];
+
+        assert!(CATALOG
+            .iter()
+            .all(|entry| entry.background_by_default == enabled.contains(&entry.key)));
+        assert!(background_by_default("https://web.whatsapp.com/"));
+        assert!(!background_by_default("https://teams.microsoft.com/"));
+        assert!(!background_by_default("https://custom.example/"));
     }
 }

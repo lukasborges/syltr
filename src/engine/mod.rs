@@ -219,6 +219,11 @@ impl ServiceView {
         *self.on_change.borrow_mut() = Some(Box::new(f));
     }
 
+    /// Disconnects the rail observer before this view is unloaded.
+    pub fn clear_on_change(&self) {
+        self.on_change.borrow_mut().take();
+    }
+
     pub fn reload(&self) {
         self.webview.reload();
     }

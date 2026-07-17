@@ -18,6 +18,10 @@ pub struct Service {
     /// no notifications) until re-enabled from its context menu.
     #[serde(default)]
     pub disabled: bool,
+    /// Keeps the web view loaded when another service is selected, allowing
+    /// notifications and unread badges to continue updating.
+    #[serde(default)]
+    pub background: bool,
     /// Custom user-agent for this service; falls back to the built-in resolver
     /// (see `engine::user_agent`) when `None` or empty.
     #[serde(default)]
@@ -36,10 +40,15 @@ fn services_file() -> PathBuf {
 pub fn load() -> LoadedServices {
     match std::fs::read_to_string(services_file()) {
         Ok(text) => match serde_json::from_str::<Vec<Service>>(&text) {
-            Ok(services) => LoadedServices {
-                services,
-                first_run: false,
-            },
+            Ok(mut services) => {
+                if apply_background_defaults(&text, &mut services) {
+                    save(&services);
+                }
+                LoadedServices {
+                    services,
+                    first_run: false,
+                }
+            }
             Err(e) => {
                 eprintln!("syltr: failed to parse services, starting empty: {e}");
                 LoadedServices {
@@ -64,6 +73,23 @@ pub fn load() -> LoadedServices {
             }
         }
     }
+}
+
+/// Applies catalog recommendations only to entries written before the
+/// background setting existed. Once saved, every service has an explicit value
+/// and later user choices are left untouched.
+fn apply_background_defaults(json: &str, services: &mut [Service]) -> bool {
+    let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(json) else {
+        return false;
+    };
+    let mut changed = false;
+    for (service, entry) in services.iter_mut().zip(entries) {
+        if entry.get("background").is_none() {
+            service.background = crate::catalog::background_by_default(&service.url);
+            changed = true;
+        }
+    }
+    changed
 }
 
 pub fn save(list: &[Service]) {
@@ -115,3 +141,6 @@ fn slugify(base: &str) -> String {
 fn id_taken(existing: &[Service], id: &str) -> bool {
     existing.iter().any(|s| s.id == id)
 }
+
+#[cfg(test)]
+mod tests;
