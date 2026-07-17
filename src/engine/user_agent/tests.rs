@@ -13,6 +13,11 @@ fn icloud_gets_safari() {
 }
 
 #[test]
+fn google_calendar_gets_safari() {
+    assert_eq!(for_service("https://calendar.google.com/", None), SAFARI);
+}
+
+#[test]
 fn custom_overrides_quirks_and_default() {
     assert_eq!(
         for_service("https://web.whatsapp.com/", Some("MyUA")),

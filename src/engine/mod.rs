@@ -274,10 +274,10 @@ fn build_settings(user_agent: &str) -> webkit6::Settings {
     settings.set_enable_smooth_scrolling(true);
     settings.set_media_playback_requires_user_gesture(false);
     settings.set_javascript_can_access_clipboard(true);
-    // WebKitGTK 2.52 can leave accelerated web views with a black surface on
-    // some GPUs (notably AMD Radeon). Prefer the stable software path and keep
-    // hardware rendering as an explicit opt-in for systems where it is safe.
-    if std::env::var_os("SYLTR_HW_RENDER").is_none() {
+    // Heavy SPAs such as Google Chat can consume gigabytes and stop painting
+    // when forced through WebKitGTK's software path. Keep acceleration as the
+    // default, with an escape hatch for machines where GPU compositing fails.
+    if std::env::var_os("SYLTR_SW_RENDER").is_some() {
         settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
     }
     settings.set_enable_media_stream(true);

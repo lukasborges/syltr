@@ -5,7 +5,9 @@
 //! modern Chrome-on-Linux UA globally, allow per-service overrides
 //! (Epiphany-style quirks) for services with a better non-Chrome path — e.g.
 //! iCloud, which unlocks its full web app only for Safari — and let the user
-//! set a custom UA per service in the edit dialog.
+//! set a custom UA per service in the edit dialog. Google Calendar also uses
+//! the Safari path because Chrome-specific code paths are unreliable in
+//! WebKitGTK.
 //!
 //! Precedence: `SYLTR_USER_AGENT` (forces every service) > the service's own
 //! custom UA > the built-in quirks table > the Chrome default.
@@ -19,7 +21,7 @@ const CHROME: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 \
 const SAFARI: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
 AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
 
-const OVERRIDES: &[(&str, &str)] = &[("icloud.com", SAFARI)];
+const OVERRIDES: &[(&str, &str)] = &[("icloud.com", SAFARI), ("calendar.google.com", SAFARI)];
 
 pub fn for_service(url: &str, custom: Option<&str>) -> String {
     if let Ok(forced) = std::env::var("SYLTR_USER_AGENT") {

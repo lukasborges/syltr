@@ -51,8 +51,8 @@ Useful environment variables:
 
 - `SYLTR_DEBUG=1` — forward the pages' JS errors/warnings to stderr
 - `SYLTR_LOCALE_DIR` — override the translations directory
-- `SYLTR_HW_RENDER=1` — opt into hardware acceleration (disabled by default
-  because WebKitGTK 2.52 can show black surfaces on some GPUs)
+- `SYLTR_SW_RENDER=1` — disable hardware acceleration as a troubleshooting
+  fallback (heavy web apps may use substantially more memory)
 
 ### Media codecs (WhatsApp video)
 
@@ -103,10 +103,12 @@ The rest of the app depends only on `ServiceView` (`new`, `widget`, `icon`,
 `reload`, `go_back`, `go_forward`, `go_home`, `set_notifications_enabled`,
 `set_spell_languages`), so the engine internals stay contained in `src/engine/`.
 
-Compatibility choices carried in the engine: hardware acceleration is off (the
-web process crashes compositing Teams), media capture/WebRTC is enabled despite
-known PipeWire device-monitor crashes on some systems, and a startup script
-shims `Notification.permission` and `requestIdleCallback`.
+Compatibility choices carried in the engine: hardware acceleration stays on
+because heavy SPAs can exhaust memory on the software path, Google Calendar
+uses a Safari user agent to avoid incompatible Chrome-specific code paths,
+media capture/WebRTC is enabled despite known PipeWire device-monitor crashes
+on some systems, and a startup script shims `Notification.permission` and
+`requestIdleCallback`.
 
 ## License
 
