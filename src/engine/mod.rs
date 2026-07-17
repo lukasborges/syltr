@@ -239,6 +239,13 @@ impl ServiceView {
         self.webview.load_uri(&self.home);
     }
 
+    /// Opens WebKit's developer tools for this service.
+    pub fn show_inspector(&self) {
+        if let Some(inspector) = self.webview.inspector() {
+            inspector.show();
+        }
+    }
+
     pub fn set_spell_languages(&self, langs: &[String]) {
         apply_spell(&self.webview, langs);
     }

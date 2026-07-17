@@ -57,6 +57,12 @@ impl Ui {
                 v.go_home();
             }
         });
+        let inspector = menu_item(&gettext("Open Web Inspector"));
+        self.connect_menu_item(&inspector, &popover, |ui| {
+            if let Some(v) = ui.current_view() {
+                v.show_inspector();
+            }
+        });
         let edit = menu_item(&gettext("Edit service…"));
         self.connect_menu_item(&edit, &popover, move |ui| {
             if let Some(i) = svc_index {
@@ -84,6 +90,7 @@ impl Ui {
 
         menu.append(&reload);
         menu.append(&home);
+        menu.append(&inspector);
         menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         menu.append(&edit);
         menu.append(&mute);
