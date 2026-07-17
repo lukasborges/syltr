@@ -35,6 +35,82 @@ pub(super) const FAVICON_JS: &str = r#"
 })();
 "#;
 
+/// Browser-like economy mode for a loaded but hidden service.
+///
+/// WebKit already stops painting an unmapped `WebView`; this complements that
+/// native behavior by pausing only visual work that can otherwise continue in
+/// the web process. Network activity, timers, WebSockets, audio and application
+/// JavaScript deliberately remain untouched so notifications keep arriving.
+pub(super) const BACKGROUND_ECONOMY_JS: &str = r#"
+(function () {
+  if (window.__syltrBackgroundEconomyInstalled) return;
+  window.__syltrBackgroundEconomyInstalled = true;
+
+  let enabled = false;
+
+  const pauseInfiniteAnimations = () => {
+    if (!enabled || typeof document.getAnimations !== 'function') return;
+    for (const animation of document.getAnimations()) {
+      try {
+        const timing = animation.effect && animation.effect.getTiming();
+        if (timing && timing.iterations === Infinity && animation.playState === 'running') {
+          animation.__syltrEconomyPaused = true;
+          animation.pause();
+        }
+      } catch (e) {}
+    }
+  };
+
+  const pauseAutomaticVideo = (video) => {
+    try {
+      if (enabled && !video.paused && (video.loop || video.muted)) {
+        video.__syltrEconomyPaused = true;
+        video.pause();
+      }
+    } catch (e) {}
+  };
+
+  const apply = (background) => {
+    enabled = !!background;
+    if (enabled) {
+      pauseInfiniteAnimations();
+      for (const video of document.querySelectorAll('video')) pauseAutomaticVideo(video);
+      return;
+    }
+
+    if (typeof document.getAnimations === 'function') {
+      for (const animation of document.getAnimations()) {
+        try {
+          if (animation.__syltrEconomyPaused) {
+            delete animation.__syltrEconomyPaused;
+            animation.play();
+          }
+        } catch (e) {}
+      }
+    }
+    for (const video of document.querySelectorAll('video')) {
+      try {
+        if (video.__syltrEconomyPaused) {
+          delete video.__syltrEconomyPaused;
+          video.play().catch(() => {});
+        }
+      } catch (e) {}
+    }
+  };
+
+  // Catch autoplay/looping videos and CSS animations created while hidden.
+  document.addEventListener('play', (event) => {
+    if (event.target instanceof HTMLVideoElement) pauseAutomaticVideo(event.target);
+  }, true);
+  document.addEventListener('animationstart', () => {
+    Promise.resolve().then(pauseInfiniteAnimations);
+  }, true);
+
+  window.__syltrSetBackgroundEconomy = apply;
+  apply(document.hidden);
+})();
+"#;
+
 /// Injected at the start of every page (compatibility):
 /// 1) replaces the Web Notification API with a shim that forwards notifications
 ///    to the native side via the `syltrNotify` handler. WebKitGTK only grants
@@ -345,4 +421,15 @@ pub(super) const SUPPRESS_MPRIS_JS: &str = r#"
 /// Runs a script on the webview (fire-and-forget).
 pub(super) fn run_js(webview: &webkit6::WebView, script: &str) {
     webview.evaluate_javascript(script, None, None, None::<&gtk::gio::Cancellable>, |_| {});
+}
+
+/// Applies the current foreground/background state after a selection change or
+/// navigation. The injected helper owns the reversible visual optimizations.
+pub(super) fn set_background_economy(webview: &webkit6::WebView, enabled: bool) {
+    run_js(
+        webview,
+        &format!(
+            "window.__syltrSetBackgroundEconomy && window.__syltrSetBackgroundEconomy({enabled});"
+        ),
+    );
 }

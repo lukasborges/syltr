@@ -2,10 +2,57 @@
 //! download wiring: files go straight to ~/Downloads (or the XDG equivalent)
 //! without a dialog, avoiding collisions with existing files.
 
+use std::cell::OnceCell;
 use std::path::{Path, PathBuf};
 
 use gtk::glib;
 use gtk::prelude::*;
+
+const DEFAULT_WEB_PROCESS_MEMORY_LIMIT_MB: u32 = 2048;
+
+thread_local! {
+    /// All services share one context, matching a normal browser profile while
+    /// their `NetworkSession`s keep accounts and storage isolated.
+    static WEB_CONTEXT: OnceCell<webkit6::WebContext> = const { OnceCell::new() };
+}
+
+/// Shared context with a browser-like memory-pressure policy. WebKit releases
+/// caches and other reclaimable data at its conservative/strict thresholds;
+/// the kill threshold remains at its safe default of zero, so a background
+/// messenger is never discarded merely for crossing the limit.
+pub(super) fn context() -> webkit6::WebContext {
+    WEB_CONTEXT.with(|cell| {
+        cell.get_or_init(|| {
+            let mut network_settings = memory_pressure_settings();
+            webkit6::NetworkSession::set_memory_pressure_settings(&mut network_settings);
+
+            let web_settings = memory_pressure_settings();
+            webkit6::WebContext::builder()
+                .memory_pressure_settings(&web_settings)
+                .build()
+        })
+        .clone()
+    })
+}
+
+fn memory_pressure_settings() -> webkit6::MemoryPressureSettings {
+    let mut settings = webkit6::MemoryPressureSettings::new();
+    settings.set_memory_limit(configured_memory_limit_mb(
+        std::env::var("SYLTR_WEB_PROCESS_MEMORY_MB").ok().as_deref(),
+    ));
+    // Reclaim caches before the process grows large, but reserve the strict
+    // policy for genuinely exceptional usage to avoid repeated full GC cycles.
+    settings.set_conservative_threshold(0.40);
+    settings.set_strict_threshold(0.70);
+    settings
+}
+
+fn configured_memory_limit_mb(value: Option<&str>) -> u32 {
+    value
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| (1024..=8192).contains(value))
+        .unwrap_or(DEFAULT_WEB_PROCESS_MEMORY_LIMIT_MB)
+}
 
 /// Builds a persistent, isolated network session under `session_dir` — each
 /// service gets its own cookies and storage (like separate accounts).
@@ -93,4 +140,25 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
         }
     }
     unreachable!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{configured_memory_limit_mb, DEFAULT_WEB_PROCESS_MEMORY_LIMIT_MB};
+
+    #[test]
+    fn memory_limit_uses_balanced_default() {
+        assert_eq!(
+            configured_memory_limit_mb(None),
+            DEFAULT_WEB_PROCESS_MEMORY_LIMIT_MB
+        );
+        assert_eq!(configured_memory_limit_mb(Some("invalid")), 2048);
+        assert_eq!(configured_memory_limit_mb(Some("512")), 2048);
+    }
+
+    #[test]
+    fn memory_limit_accepts_safe_override() {
+        assert_eq!(configured_memory_limit_mb(Some("1024")), 1024);
+        assert_eq!(configured_memory_limit_mb(Some("4096")), 4096);
+    }
 }

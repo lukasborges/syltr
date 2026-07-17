@@ -45,9 +45,11 @@ impl Ui {
     /// Ensures a service's web view exists and returns a clone. Views are made
     /// on demand for the selected service and eagerly only for services whose
     /// background activity is enabled.
-    pub(super) fn ensure_view(&self, svc: &Service) -> engine::ServiceView {
+    pub(super) fn ensure_view(&self, svc: &Service, active: bool) -> engine::ServiceView {
         if let Some(view) = self.state.borrow().views.get(&svc.id) {
-            return view.clone();
+            let view = view.clone();
+            view.set_active(active);
+            return view;
         }
         let view = engine::ServiceView::new(
             &svc.id,
@@ -65,7 +67,18 @@ impl Ui {
             .borrow_mut()
             .views
             .insert(svc.id.clone(), view.clone());
+        view.set_active(active);
         view
+    }
+
+    /// Mirrors the stack selection into the engine. Background-enabled
+    /// services stay connected, but enter the lightweight visual state.
+    fn sync_view_activity(&self) {
+        let state = self.state.borrow();
+        let current = state.current.as_deref();
+        for (id, view) in &state.views {
+            view.set_active(current.is_some_and(|current| current == id));
+        }
     }
 
     /// Removes a web view and its rail callback so WebKit can release all of
@@ -126,7 +139,7 @@ impl Ui {
             let views: Vec<engine::ServiceView> = group
                 .iter()
                 .filter(|svc| should_keep_view(svc, current.as_deref()))
-                .map(|svc| self.ensure_view(svc))
+                .map(|svc| self.ensure_view(svc, current.as_deref() == Some(svc.id.as_str())))
                 .collect();
             let rep = &group[0];
 
@@ -190,6 +203,7 @@ impl Ui {
             self.title.set_title("Syltr");
             self.split.set_show_content(true);
         }
+        self.sync_view_activity();
     }
 
     pub(super) fn select_index(&self, idx: usize) {
@@ -323,7 +337,7 @@ impl Ui {
 
         let created = !service.disabled && !self.state.borrow().views.contains_key(id);
         if !service.disabled {
-            self.ensure_view(&service);
+            self.ensure_view(&service, true);
         }
 
         if service.disabled {
@@ -334,6 +348,7 @@ impl Ui {
         self.title.set_title(&service.name);
         self.state.borrow_mut().current = Some(id.to_string());
         self.split.set_show_content(true);
+        self.sync_view_activity();
 
         let unloaded = self.reconcile_views();
         if created || unloaded {

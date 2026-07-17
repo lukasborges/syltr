@@ -23,7 +23,10 @@ use gtk::gdk;
 use gtk::prelude::*;
 use webkit6::prelude::*;
 
-use scripts::{run_js, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS, SUPPRESS_MPRIS_JS};
+use scripts::{
+    run_js, BACKGROUND_ECONOMY_JS, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS,
+    SUPPRESS_MPRIS_JS,
+};
 
 /// A callback invoked when a view's favicon or unread count changes.
 type ChangeCallback = Rc<RefCell<Option<Box<dyn Fn()>>>>;
@@ -37,6 +40,8 @@ pub struct ServiceView {
     /// Whether desktop notifications are forwarded (mute and DND both land here
     /// via [`ServiceView::set_notifications_enabled`]).
     notifications: Rc<Cell<bool>>,
+    /// True while the service is loaded for notifications but not selected.
+    background_economy: Rc<Cell<bool>>,
     home: String,
     unread: Rc<Cell<u32>>,
     favicon: Rc<RefCell<Option<gdk::Texture>>>,
@@ -56,6 +61,7 @@ impl ServiceView {
         muted: bool,
         spell_langs: &[String],
     ) -> Self {
+        let web_context = session::context();
         let network_session = session::build(session_dir);
         session::wire_downloads(&network_session);
 
@@ -94,6 +100,13 @@ impl ServiceView {
             &[],
             &[],
         ));
+        ucm.add_script(&webkit6::UserScript::new(
+            BACKGROUND_ECONOMY_JS,
+            webkit6::UserContentInjectedFrames::AllFrames,
+            webkit6::UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
         if debug_enabled() {
             wire_console_capture(&ucm, name);
         }
@@ -112,6 +125,7 @@ impl ServiceView {
             .autoplay(webkit6::AutoplayPolicy::Allow)
             .build();
         let webview = webkit6::WebView::builder()
+            .web_context(&web_context)
             .network_session(&network_session)
             .settings(&settings)
             .user_content_manager(&ucm)
@@ -146,6 +160,7 @@ impl ServiceView {
         });
 
         let unread = Rc::new(Cell::new(0u32));
+        let background_economy = Rc::new(Cell::new(false));
         let favicon = Rc::new(RefCell::new(favicon::load_cached(session_dir)));
         let on_change: ChangeCallback = Rc::new(RefCell::new(None));
         let notify: Rc<dyn Fn()> = {
@@ -175,11 +190,17 @@ impl ServiceView {
 
         // Once a page finishes loading, rasterize the real favicon (SVG
         // included) via JS as a robust fallback to WebKit's own tracking.
-        webview.connect_load_changed(|wv, event| {
-            if event == webkit6::LoadEvent::Finished {
-                run_js(wv, FAVICON_JS);
-            }
-        });
+        {
+            let background_economy = background_economy.clone();
+            webview.connect_load_changed(move |wv, event| {
+                if event == webkit6::LoadEvent::Committed {
+                    scripts::set_background_economy(wv, background_economy.get());
+                }
+                if event == webkit6::LoadEvent::Finished {
+                    run_js(wv, FAVICON_JS);
+                }
+            });
+        }
 
         webview.load_uri(url);
 
@@ -187,6 +208,7 @@ impl ServiceView {
             root: webview.clone().upcast(),
             webview,
             notifications,
+            background_economy,
             home: url.to_string(),
             unread,
             favicon,
@@ -197,6 +219,18 @@ impl ServiceView {
     /// Toggles forwarding the service's notifications to the desktop.
     pub fn set_notifications_enabled(&self, enabled: bool) {
         self.notifications.set(enabled);
+    }
+
+    /// Marks this view as foreground or background without unloading it. The
+    /// hidden view keeps its network connection and JS state, while continuous
+    /// visual work is paused until it is selected again.
+    pub fn set_active(&self, active: bool) {
+        let enabled = !active;
+        if self.background_economy.get() == enabled {
+            return;
+        }
+        self.background_economy.set(enabled);
+        scripts::set_background_economy(&self.webview, enabled);
     }
 
     pub fn widget(&self) -> &gtk::Widget {
