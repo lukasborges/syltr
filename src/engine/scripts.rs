@@ -249,104 +249,11 @@ pub(super) const BLOB_MEDIA_JS: &str = r#"
 })();
 "#;
 
-/// Boosts media volume by routing <audio>/<video> elements through a Web Audio
-/// GainNode. WebKitGTK 6.0 (2.52) does not expose a WebView volume property,
-/// and WhatsApp Web's voice messages often come out much quieter than the
-/// system level. The gain is applied to all media elements, current and future.
-pub(super) const AUDIO_BOOST_JS: &str = r#"
-(function () {
-  if (window.__syltrAudioBoost) return;
-  window.__syltrAudioBoost = true;
-
-  const GAIN = 4.0;
-  let audioCtx;
-  let gainNode;
-
-  function ensureContext() {
-    if (!audioCtx) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!AC) return null;
-      audioCtx = new AC();
-      gainNode = audioCtx.createGain();
-      gainNode.gain.value = GAIN;
-      gainNode.connect(audioCtx.destination);
-    }
-    if (audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-    }
-    return audioCtx;
-  }
-
-  function boost(el) {
-    if (!el || el.__syltrBoosted) return;
-    const tag = (el.tagName || '').toUpperCase();
-    if (tag !== 'AUDIO' && tag !== 'VIDEO') return;
-    const ctx = ensureContext();
-    if (!ctx) return;
-    try {
-      const src = ctx.createMediaElementSource(el);
-      src.connect(gainNode);
-      el.__syltrBoosted = true;
-    } catch (e) {
-      // Already connected to another AudioContext; leave it alone.
-    }
-  }
-
-  function scan(root) {
-    root = root || document;
-    if (!root || !root.querySelectorAll) return;
-    root.querySelectorAll('audio, video').forEach(boost);
-    root.querySelectorAll('*').forEach((el) => {
-      if (el.shadowRoot) scan(el.shadowRoot);
-    });
-  }
-
-  // Hook the Audio constructor (some webapps create Audio objects in JS).
-  const OriginalAudio = window.Audio;
-  if (OriginalAudio) {
-    window.Audio = function (url) {
-      const el = new OriginalAudio(url);
-      boost(el);
-      return el;
-    };
-    window.Audio.prototype = OriginalAudio.prototype;
-  }
-
-  // Hook document.createElement for audio/video tags.
-  const originalCreateElement = document.createElement;
-  document.createElement = function (tagName) {
-    const el = originalCreateElement.call(this, tagName);
-    const tag = String(tagName).toUpperCase();
-    if (tag === 'AUDIO' || tag === 'VIDEO') boost(el);
-    return el;
-  };
-
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((m) => {
-      scan(m.target);
-      if (m.addedNodes) {
-        m.addedNodes.forEach((n) => {
-          if (n.nodeType === 1) scan(n);
-        });
-      }
-    });
-  });
-  const root = document.body || document.documentElement;
-  if (root) observer.observe(root, { subtree: true, childList: true });
-
-  ['click', 'touchstart', 'keydown'].forEach((evt) => {
-    document.addEventListener(evt, () => {
-      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
-      scan();
-    }, { passive: true, capture: true });
-  });
-
-  setInterval(() => scan(), 2000);
-
-  scan();
-})();
-"#;
-
+/// Prevents web apps from publishing transport controls through Media Session.
+/// WebKitGTK 2.52 skips MPRIS registration when native media metadata has no
+/// title, so install empty metadata before the page can provide its own. Media
+/// playback remains untouched; routing WhatsApp through Web Audio can leave it
+/// silent when WebKitGTK keeps the AudioContext suspended.
 pub(super) const SUPPRESS_MPRIS_JS: &str = r#"
 (function () {
   if (window.__syltrMprisGuard) return;
@@ -356,18 +263,25 @@ pub(super) const SUPPRESS_MPRIS_JS: &str = r#"
 
   try {
     const ms = navigator.mediaSession;
+    const proto = window.MediaSession && window.MediaSession.prototype;
+    const metadataDescriptor = proto
+      && Object.getOwnPropertyDescriptor(proto, 'metadata');
+    let emptyMetadata = null;
+    if (ms && metadataDescriptor && metadataDescriptor.set && window.MediaMetadata) {
+      emptyMetadata = new window.MediaMetadata({ title: '' });
+      metadataDescriptor.set.call(ms, emptyMetadata);
+    }
     if (ms) {
       try { ms.setActionHandler = nope; } catch (e) {}
       try { ms.setPositionState = nope; } catch (e) {}
     }
-    const proto = window.MediaSession && window.MediaSession.prototype;
     if (proto) {
       try { proto.setActionHandler = nope; } catch (e) {}
       try { proto.setPositionState = nope; } catch (e) {}
       try {
         Object.defineProperty(proto, 'metadata', {
           configurable: true,
-          get: () => null,
+          get: () => emptyMetadata,
           set: nope,
         });
       } catch (e) {}
@@ -381,49 +295,6 @@ pub(super) const SUPPRESS_MPRIS_JS: &str = r#"
     }
   } catch (e) {}
 
-  try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    const WrappedAudio = window.Audio;
-    if (!AC || !WrappedAudio) return;
-
-    let ctx;
-    const context = () => {
-      if (!ctx) ctx = new AC();
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-      return ctx;
-    };
-
-    const buffers = new Map();
-    const bufferFor = (url) => {
-      if (!buffers.has(url)) {
-        buffers.set(
-          url,
-          fetch(url).then((r) => r.arrayBuffer()).then((d) => context().decodeAudioData(d))
-        );
-      }
-      return buffers.get(url);
-    };
-
-    window.Audio = function (url) {
-      const el = new WrappedAudio(url);
-      const nativePlay = el.play.bind(el);
-      el.play = function () {
-        const src = el.currentSrc || el.src;
-        if (!src) return nativePlay();
-        return bufferFor(src).then((buffer) => {
-          const c = context();
-          const node = c.createBufferSource();
-          node.buffer = buffer;
-          const gain = c.createGain();
-          gain.gain.value = 4.0;
-          node.connect(gain).connect(c.destination);
-          node.start();
-        }).catch(() => nativePlay());
-      };
-      return el;
-    };
-    window.Audio.prototype = WrappedAudio.prototype;
-  } catch (e) {}
 })();
 "#;
 
