@@ -17,6 +17,7 @@ license=('GPL-3.0-or-later')
 depends=(
   'gtk4' 'libadwaita' 'webkitgtk-6.0'
   'gst-plugins-base' 'gst-plugins-good'
+  'gst-plugin-pipewire' 'gst-plugins-bad' 'libnice'
   'hicolor-icon-theme'
 )
 optdepends=(

@@ -18,6 +18,7 @@ storage).
 - Links clicked in messages (`target=_blank`) open in the **default browser**; SSO popups and in-service navigation stay in-app, with back/forward
 - Isolated session per service (independent login for each)
 - Downloads saved straight to `~/Downloads` with a completion notification
+- Camera, microphone and WebRTC call support
 - Service list persisted in `~/.config/dev.syltr.Syltr/services.json`
 
 ### Shortcuts
@@ -57,6 +58,13 @@ WebKitGTK plays media through **GStreamer**, so H.264/AAC (WhatsApp videos)
 work with the system codecs — on Arch, install `gst-plugins-good` and
 `gst-libav`. No engine rebuild involved.
 
+### Camera, microphone and calls
+
+Media capture and WebRTC are enabled for all services. On Arch they require
+`gst-plugin-pipewire`, `gst-plugins-bad` and `libnice`. WebKitGTK's PipeWire
+device monitor is known to crash on some systems, so this support remains
+experimental despite being enabled by default.
+
 ### Tests
 
 ```bash
@@ -94,8 +102,8 @@ The rest of the app depends only on `ServiceView` (`new`, `widget`, `icon`,
 `set_spell_languages`), so the engine internals stay contained in `src/engine/`.
 
 Compatibility choices carried in the engine: hardware acceleration is off (the
-web process crashes compositing Teams), media capture/WebRTC is off (WebKit's
-device monitor segfaults with PipeWire on some systems), and a startup script
+web process crashes compositing Teams), media capture/WebRTC is enabled despite
+known PipeWire device-monitor crashes on some systems, and a startup script
 shims `Notification.permission` and `requestIdleCallback`.
 
 ## License

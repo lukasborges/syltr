@@ -260,8 +260,8 @@ fn build_settings(user_agent: &str) -> webkit6::Settings {
     if std::env::var_os("SYLTR_SW_RENDER").is_some() {
         settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
     }
-    settings.set_enable_media_stream(false);
-    settings.set_enable_webrtc(false);
+    settings.set_enable_media_stream(true);
+    settings.set_enable_webrtc(true);
     enable_runtime_features(&settings);
     settings
 }

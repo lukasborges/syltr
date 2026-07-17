@@ -75,13 +75,16 @@ PKGS_GNOME=(
     hicolor-icon-theme adwaita-icon-theme
 )
 
-# WebKitGTK — a engine web do Syltr. A mídia sai via GStreamer, então os
-# plugins good + libav dão H.264/AAC (vídeo do WhatsApp) com codecs do sistema.
+# WebKitGTK — a engine web do Syltr. A mídia sai via GStreamer; PipeWire,
+# plugins-bad e libnice fornecem captura de câmera/mic e chamadas WebRTC.
 PKGS_WEBKIT=(
     webkitgtk-6.0
     gst-plugins-base
     gst-plugins-good
+    gst-plugins-bad
+    gst-plugin-pipewire
     gst-libav
+    libnice
 )
 
 # Verificação ortográfica: enchant + backend hunspell + dicionário. O WebKit
