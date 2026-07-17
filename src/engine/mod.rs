@@ -61,7 +61,6 @@ impl ServiceView {
         muted: bool,
         spell_langs: &[String],
     ) -> Self {
-        let web_context = session::context();
         let network_session = session::build(session_dir);
         session::wire_downloads(&network_session);
 
@@ -125,7 +124,6 @@ impl ServiceView {
             .autoplay(webkit6::AutoplayPolicy::Allow)
             .build();
         let webview = webkit6::WebView::builder()
-            .web_context(&web_context)
             .network_session(&network_session)
             .settings(&settings)
             .user_content_manager(&ucm)
@@ -231,6 +229,9 @@ impl ServiceView {
         }
         self.background_economy.set(enabled);
         scripts::set_background_economy(&self.webview, enabled);
+        if active {
+            self.root.queue_draw();
+        }
     }
 
     pub fn widget(&self) -> &gtk::Widget {

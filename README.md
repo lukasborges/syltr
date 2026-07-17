@@ -56,9 +56,6 @@ Useful environment variables:
   fallback (heavy web apps may use substantially more memory)
 - `SYLTR_TEAMS_CALLS=1` — opt into experimental Teams calls; disabled by
   default because WebKitGTK's WebRTC/PipeWire path can hang Teams
-- `SYLTR_WEB_PROCESS_MEMORY_MB` — WebKit per-process memory-pressure limit in
-  MiB (safe range 1024–8192, default 2048); this releases reclaimable caches
-  earlier but never discards a service
 
 ### Media codecs (WhatsApp video)
 
@@ -113,8 +110,7 @@ badges updating; focused direct messengers use this mode by default, while
 heavier workspaces, mail, calendar, tasks, AI and custom services do not.
 Loaded background services keep JavaScript and WebSockets alive, while WebKit
 stops painting them and Syltr pauses infinite visual animations and automatic
-video. A conservative memory-pressure policy also releases caches without
-discarding the page, so real-time notifications remain available.
+video. The page remains loaded, so real-time notifications stay available.
 The rest of the app depends only on `ServiceView` (`new`, `widget`, `icon`,
 `reload`, `go_back`, `go_forward`, `go_home`, `set_notifications_enabled`,
 `set_active`, `set_spell_languages`), so the engine internals stay contained in
