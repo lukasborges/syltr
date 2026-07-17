@@ -9,6 +9,8 @@ mod clipboard;
 mod favicon;
 mod scripts;
 mod session;
+#[cfg(test)]
+mod tests;
 mod unread;
 mod user_agent;
 mod webapp_scripts;
@@ -57,7 +59,7 @@ impl ServiceView {
         let network_session = session::build(session_dir);
         session::wire_downloads(&network_session);
 
-        let settings = build_settings(&user_agent::for_service(url, user_agent));
+        let settings = build_settings(&user_agent::for_service(url, user_agent), url);
 
         let ucm = webkit6::UserContentManager::new();
         ucm.register_script_message_handler("faviconReady", None);
@@ -267,7 +269,7 @@ pub fn resolve_user_agent(url: &str, custom: Option<&str>) -> String {
     user_agent::for_service(url, custom)
 }
 
-fn build_settings(user_agent: &str) -> webkit6::Settings {
+fn build_settings(user_agent: &str, url: &str) -> webkit6::Settings {
     let settings = webkit6::Settings::new();
     settings.set_user_agent(Some(user_agent));
     settings.set_enable_developer_extras(true);
@@ -280,10 +282,15 @@ fn build_settings(user_agent: &str) -> webkit6::Settings {
     if std::env::var_os("SYLTR_SW_RENDER").is_some() {
         settings.set_hardware_acceleration_policy(webkit6::HardwareAccelerationPolicy::Never);
     }
-    settings.set_enable_media_stream(true);
-    settings.set_enable_webrtc(true);
+    let media_capture = media_capture_enabled(url, std::env::var_os("SYLTR_TEAMS_CALLS").is_some());
+    settings.set_enable_media_stream(media_capture);
+    settings.set_enable_webrtc(media_capture);
     enable_runtime_features(&settings);
     settings
+}
+
+fn media_capture_enabled(url: &str, enable_teams_calls: bool) -> bool {
+    !url.contains("teams.microsoft.com") || enable_teams_calls
 }
 
 fn enable_runtime_features(settings: &webkit6::Settings) {

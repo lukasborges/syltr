@@ -53,6 +53,8 @@ Useful environment variables:
 - `SYLTR_LOCALE_DIR` — override the translations directory
 - `SYLTR_SW_RENDER=1` — disable hardware acceleration as a troubleshooting
   fallback (heavy web apps may use substantially more memory)
+- `SYLTR_TEAMS_CALLS=1` — opt into experimental Teams calls; disabled by
+  default because WebKitGTK's WebRTC/PipeWire path can hang Teams
 
 ### Media codecs (WhatsApp video)
 
@@ -106,9 +108,9 @@ The rest of the app depends only on `ServiceView` (`new`, `widget`, `icon`,
 Compatibility choices carried in the engine: hardware acceleration stays on
 because heavy SPAs can exhaust memory on the software path, Google Calendar
 uses a Safari user agent to avoid incompatible Chrome-specific code paths,
-media capture/WebRTC is enabled despite known PipeWire device-monitor crashes
-on some systems, and a startup script shims `Notification.permission` and
-`requestIdleCallback`.
+media capture/WebRTC stays enabled except for Teams calls (experimental opt-in)
+because its PipeWire device-monitor path can hang, and a startup script shims
+`Notification.permission` and `requestIdleCallback`.
 
 ## License
 
