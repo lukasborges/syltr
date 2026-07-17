@@ -116,6 +116,7 @@ impl Ui {
     }
 
     pub(super) fn refresh_sidebar(&self) {
+        self.rebuilding_sidebar.set(true);
         self.reconcile_views();
         while let Some(child) = self.list.first_child() {
             self.list.remove(&child);
@@ -190,6 +191,7 @@ impl Ui {
             self.title.set_title("Syltr");
             self.split.set_show_content(true);
         }
+        self.rebuilding_sidebar.set(false);
     }
 
     pub(super) fn select_index(&self, idx: usize) {

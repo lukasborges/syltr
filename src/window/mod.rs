@@ -52,6 +52,9 @@ struct Ui {
     dnd: Rc<Cell<bool>>,
     /// Active spell-check languages.
     spell: Rc<RefCell<Vec<String>>>,
+    /// Prevents GtkListBox's implicit first-row selection from opening a
+    /// service while the rail is being rebuilt.
+    rebuilding_sidebar: Rc<Cell<bool>>,
     state: Rc<RefCell<State>>,
 }
 
@@ -114,6 +117,7 @@ pub fn build(app: &adw::Application) {
         app: app.clone(),
         dnd: Rc::new(Cell::new(false)),
         spell: Rc::new(RefCell::new(settings.spell_languages.clone())),
+        rebuilding_sidebar: Rc::new(Cell::new(false)),
         state,
     };
 
@@ -121,6 +125,9 @@ pub fn build(app: &adw::Application) {
 
     let ui_selected = ui.clone();
     list.connect_row_selected(move |_, row| {
+        if ui_selected.rebuilding_sidebar.get() {
+            return;
+        }
         if let Some(row) = row {
             ui_selected.show_service_at(row.index() as usize);
         }
