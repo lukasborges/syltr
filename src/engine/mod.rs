@@ -24,8 +24,8 @@ use gtk::prelude::*;
 use webkit6::prelude::*;
 
 use scripts::{
-    run_js, BACKGROUND_ECONOMY_JS, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, FAVICON_JS,
-    SUPPRESS_MPRIS_JS,
+    run_js, BACKGROUND_ECONOMY_JS, BLOB_MEDIA_JS, COMPAT_JS, CONSOLE_JS, EMOJI_SPRITE_REPAINT_JS,
+    FAVICON_JS, SUPPRESS_MPRIS_JS,
 };
 
 /// A callback invoked when a view's favicon or unread count changes.
@@ -106,6 +106,13 @@ impl ServiceView {
             &[],
             &[],
         ));
+        ucm.add_script(&webkit6::UserScript::new(
+            EMOJI_SPRITE_REPAINT_JS,
+            webkit6::UserContentInjectedFrames::AllFrames,
+            webkit6::UserScriptInjectionTime::Start,
+            &[],
+            &[],
+        ));
         if debug_enabled() {
             wire_console_capture(&ucm, name);
         }
@@ -131,6 +138,14 @@ impl ServiceView {
             .vexpand(true)
             .hexpand(true)
             .build();
+
+        // A newly visible WebView can retain a blank paint layer for CSS emoji
+        // sprites. Run the narrow repaint workaround only after GTK maps it,
+        // when WebKit can actually produce a frame.
+        webview.connect_map(|wv| {
+            scripts::repaint_emoji_sprites(wv);
+            wv.queue_draw();
+        });
 
         apply_spell(&webview, spell_langs);
         clipboard::wire(&webview, &ucm);
@@ -196,6 +211,7 @@ impl ServiceView {
                 }
                 if event == webkit6::LoadEvent::Finished {
                     run_js(wv, FAVICON_JS);
+                    scripts::repaint_emoji_sprites(wv);
                 }
             });
         }

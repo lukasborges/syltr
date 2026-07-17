@@ -111,6 +111,128 @@ pub(super) const BACKGROUND_ECONOMY_JS: &str = r#"
 })();
 "#;
 
+/// Repairs CSS emoji sprites when they are inserted or a WebView is mapped.
+///
+/// Some WebKitGTK versions occasionally leave CSS background sprites blank
+/// even though the WebP image is present in the page cache and decodes
+/// correctly. This observes only new `[data-emoji]` elements while the service
+/// is visible. Loading each visible sprite URL through an `Image` and briefly
+/// applying the computed background inline invalidates the affected paint
+/// layers without reloading the page or permanently overriding the site's CSS.
+pub(super) const EMOJI_SPRITE_REPAINT_JS: &str = r#"
+(function () {
+  if (window.__syltrEmojiSpriteRepairInstalled) {
+    window.__syltrRepairEmojiSprites();
+    return;
+  }
+  window.__syltrEmojiSpriteRepairInstalled = true;
+
+  let active = !document.hidden;
+  let frame = 0;
+  const pending = new Set();
+
+  const collect = (root) => {
+    if (!root || typeof root.querySelectorAll !== 'function') return;
+    if (root.nodeType === Node.ELEMENT_NODE && root.matches('[data-emoji]')) {
+      pending.add(root);
+    }
+    for (const element of root.querySelectorAll('[data-emoji]')) pending.add(element);
+  };
+
+  const repaint = () => {
+    frame = 0;
+    if (!active) {
+      pending.clear();
+      return;
+    }
+
+    const byUrl = new Map();
+    for (const element of pending) {
+      const rect = element.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 || rect.right < 0
+          || rect.top > innerHeight || rect.left > innerWidth) continue;
+
+      const background = getComputedStyle(element).backgroundImage;
+      const match = background && background.match(/url\(["']?(.*?)["']?\)/);
+      if (!match || !match[1]) continue;
+
+      const group = byUrl.get(match[1]);
+      if (group) group.push({ element, background });
+      else byUrl.set(match[1], [{ element, background }]);
+    }
+    pending.clear();
+
+    for (const [url, entries] of byUrl) {
+      const image = new Image();
+      image.onload = () => {
+        const restore = [];
+        for (const entry of entries) {
+          const element = entry.element;
+          if (!element.isConnected) continue;
+
+          const value = element.style.getPropertyValue('background-image');
+          const priority = element.style.getPropertyPriority('background-image');
+          element.style.setProperty('background-image', entry.background, 'important');
+          void element.offsetWidth;
+          restore.push({ element, value, priority, applied: entry.background });
+        }
+
+        // Keep the repaired background for one painted frame, then return
+        // ownership of the inline style to the web application.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          for (const entry of restore) {
+            if (entry.element.style.getPropertyValue('background-image') !== entry.applied) {
+              continue;
+            }
+            if (entry.value) {
+              entry.element.style.setProperty('background-image', entry.value, entry.priority);
+            } else {
+              entry.element.style.removeProperty('background-image');
+            }
+          }
+        }));
+      };
+      image.src = url;
+    }
+  };
+
+  const schedule = (root) => {
+    if (!active) return;
+    try { collect(root); } catch (e) {}
+    if (pending.size && !frame) frame = requestAnimationFrame(repaint);
+  };
+
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) schedule(node);
+    }
+  });
+
+  const observe = () => {
+    if (!active || !document.documentElement) return;
+    observer.disconnect();
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    schedule(document);
+  };
+
+  window.__syltrRepairEmojiSprites = () => schedule(document);
+  window.__syltrSetEmojiSpriteRepairActive = (enabled) => {
+    active = !!enabled;
+    if (active) {
+      observe();
+    } else {
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      pending.clear();
+    }
+  };
+
+  if (document.documentElement) observe();
+  else document.addEventListener('DOMContentLoaded', observe, { once: true });
+})();
+"#;
+
 /// Injected at the start of every page (compatibility):
 /// 1) replaces the Web Notification API with a shim that forwards notifications
 ///    to the native side via the `syltrNotify` handler. WebKitGTK only grants
@@ -429,7 +551,15 @@ pub(super) fn set_background_economy(webview: &webkit6::WebView, enabled: bool) 
     run_js(
         webview,
         &format!(
-            "window.__syltrSetBackgroundEconomy && window.__syltrSetBackgroundEconomy({enabled});"
+            "window.__syltrSetBackgroundEconomy && window.__syltrSetBackgroundEconomy({enabled});\
+             window.__syltrSetEmojiSpriteRepairActive && \
+             window.__syltrSetEmojiSpriteRepairActive({});",
+            !enabled
         ),
     );
+}
+
+/// Invalidates WebKit's paint layers for visible CSS emoji sprites.
+pub(super) fn repaint_emoji_sprites(webview: &webkit6::WebView) {
+    run_js(webview, EMOJI_SPRITE_REPAINT_JS);
 }
